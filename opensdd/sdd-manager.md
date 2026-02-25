@@ -34,7 +34,7 @@ The dependency spec (`spec.md`) is the authoritative description of what to buil
 
 4. **Implement:** Generate the implementation applying universal defaults (see Universal Implementation Defaults section below).
 
-5. **Verify:** Generate test suite per the verification protocol (see Verification Protocol section below) → run tests until all pass (or SHOULD bail after 50 attempts).
+5. **Verify:** Execute the full verification protocol (see Verification Protocol section below): generate test suite → run tests until all pass (or SHOULD bail after 50 attempts) → dispatch subagent for spec compliance audit → fix any findings → re-run tests.
 
 6. **Record:** Update `opensdd.json` `dependencies` entry with `implementation` path, `tests` path, and `has_deviations` if applicable.
 
@@ -46,12 +46,12 @@ The dependency spec (`spec.md`) is the authoritative description of what to buil
 2. Read `deviations.md` (if it exists in `.opensdd.deps/<name>/`) and flag any deviations that reference changed sections as potentially stale.
 3. Present the changes to the user: summarize what changed, flag stale deviations, and ask whether the user wants to adjust any deviations before proceeding.
 4. Patch implementation to conform to the new behavioral contract.
-5. Regenerate affected tests → run until all pass.
+5. Regenerate affected tests → run until all pass → dispatch subagent for spec compliance audit scoped to the changed sections → fix any findings → re-run tests.
 6. Tell the user to run `opensdd update apply <name>` to finalize the update in `opensdd.json`. The agent MUST always specify the spec name explicitly — it MUST NOT suggest or use the no-args batch form (`opensdd update apply` without a name).
 
 ### Check Conformance
 
-Run existing test suite → report pass/fail. If test suite is missing or stale, regenerate from spec and re-run.
+Run existing test suite → report pass/fail. If test suite is missing or stale, regenerate from spec and re-run. After tests pass, dispatch subagent for spec compliance audit → report any compliance issues found.
 
 ### Create Deviation
 
@@ -92,10 +92,43 @@ If the project lacks clear conventions, the agent MUST prompt the user to specif
 
 ## Verification Protocol
 
-The agent MUST verify its implementation by generating and running a test suite. An implementation without a passing test suite is not complete.
+The agent MUST verify its implementation through two complementary methods: a generated test suite and a spec compliance audit performed by a subagent.
+
+### Test Suite
 
 The agent MUST generate a persisted test file in the project's testing framework that thoroughly covers all behaviors described in the spec, including edge cases, error conditions, and invariants. The spec itself defines what constitutes thorough coverage — the agent should use its judgment to ensure all described behaviors are tested.
 
 The agent MUST run the tests after implementation, fix and re-run until all pass, and report spec coverage. The agent SHOULD abandon the fix-and-rerun cycle after 50 attempts and report the remaining failures to the user. The test file path MUST be tracked in `opensdd.json` under the dependency's `tests` field and be runnable via the project's standard test command.
 
 When `deviations.md` exists, the agent MUST skip tests for deviated behaviors and note the skips in the test file referencing the deviation.
+
+### Spec Compliance Audit
+
+After the test suite passes, the agent MUST dispatch a subagent to perform an independent spec compliance audit. The audit catches classes of issues that tests alone miss — incorrect ordering of operations, missing guards, wrong defaults, incomplete error handling, and subtle deviations from the spec's behavioral contract.
+
+The agent MUST dispatch the subagent with these instructions:
+
+1. **Read the full spec.** Read `spec.md` and all supplementary files linked from it. Read `deviations.md` if it exists.
+2. **Read the full implementation.** Read every implementation file produced for this spec.
+3. **Walk each behavioral contract section.** For each section in the spec's `## Behavioral Contract`, verify:
+   - Every MUST requirement is satisfied in the implementation
+   - Every SHOULD requirement is either satisfied or has a justified reason for omission
+   - The ordering of operations matches the spec when the spec prescribes a specific order
+   - Error handling matches the spec's defined error paths and exit conditions
+   - Edge cases enumerated in the spec are handled
+4. **Check invariants.** For each invariant listed in the spec's `## Invariants` section, verify the implementation upholds it.
+5. **Check omissions.** Verify that behaviors the spec says MUST NOT happen are not present in the implementation (e.g., the implementation does not create files the spec forbids, does not modify data the spec says is read-only).
+6. **Skip deviated behaviors.** If `deviations.md` exists, do not flag deviated behaviors as compliance issues.
+7. **Report findings.** Return a structured list of compliance issues found, each with:
+   - The spec section it relates to
+   - What the spec requires
+   - What the implementation does instead
+   - Severity (violation of MUST vs. SHOULD vs. minor discrepancy)
+
+The subagent MUST NOT modify any files — it is read-only. It reports findings back to the primary agent.
+
+Upon receiving the audit results, the primary agent MUST:
+- Fix all MUST-level violations
+- Evaluate SHOULD-level issues and fix or document as appropriate
+- Re-run the test suite after any fixes to confirm no regressions
+- If fixes were made, dispatch the subagent for one additional audit pass to verify the fixes (a single re-audit is sufficient — do not loop indefinitely)
