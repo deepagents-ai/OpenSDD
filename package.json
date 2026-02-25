@@ -1,0 +1,31 @@
+{
+  "name": "opensdd",
+  "version": "0.1.0",
+  "description": "A thin Node.js command-line tool that installs, updates, publishes, and manages OpenSDD specs",
+  "type": "module",
+  "bin": {
+    "opensdd": "./bin/opensdd.js"
+  },
+  "files": [
+    "bin/",
+    "src/",
+    "opensdd/"
+  ],
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "scripts": {
+    "test": "node --test test/**/*.test.js"
+  },
+  "keywords": [
+    "opensdd",
+    "spec",
+    "specification",
+    "behavioral-contract",
+    "sdd"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "diff": "^7.0.0"
+  }
+}
