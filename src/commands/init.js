@@ -1,0 +1,184 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import readline from 'node:readline';
+import { installSkills } from '../lib/skills.js';
+
+const PROJECT_MARKERS = [
+  'package.json',
+  'pyproject.toml',
+  'Cargo.toml',
+  'go.mod',
+  '.git',
+  'opensdd.json',
+  'pom.xml',
+  'build.gradle',
+  'build.gradle.kts',
+  'Makefile',
+  'CMakeLists.txt',
+  'composer.json',
+  'Gemfile',
+  'setup.py',
+  'setup.cfg',
+  'mix.exs',
+  'deno.json',
+  'bun.lockb',
+];
+
+function hasProjectMarker(dir) {
+  return PROJECT_MARKERS.some((marker) => fs.existsSync(path.join(dir, marker)));
+}
+
+function getProjectName(dir) {
+  // Try package.json
+  const pkgPath = path.join(dir, 'package.json');
+  if (fs.existsSync(pkgPath)) {
+    try {
+      const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
+      if (pkg.name) return pkg.name;
+    } catch {
+      // ignore
+    }
+  }
+  // Try pyproject.toml
+  const pyprojectPath = path.join(dir, 'pyproject.toml');
+  if (fs.existsSync(pyprojectPath)) {
+    try {
+      const content = fs.readFileSync(pyprojectPath, 'utf-8');
+      const match = content.match(/name\s*=\s*"([^"]+)"/);
+      if (match) return match[1];
+    } catch {
+      // ignore
+    }
+  }
+  // Try Cargo.toml
+  const cargoPath = path.join(dir, 'Cargo.toml');
+  if (fs.existsSync(cargoPath)) {
+    try {
+      const content = fs.readFileSync(cargoPath, 'utf-8');
+      const match = content.match(/name\s*=\s*"([^"]+)"/);
+      if (match) return match[1];
+    } catch {
+      // ignore
+    }
+  }
+  // Default to directory name
+  return path.basename(dir);
+}
+
+function promptYN(question) {
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  return new Promise((resolve) => {
+    rl.question(question, (answer) => {
+      rl.close();
+      resolve(answer.toLowerCase() === 'y');
+    });
+  });
+}
+
+export async function initCommand() {
+  const cwd = process.cwd();
+
+  // Step 1: Check for project markers
+  if (!hasProjectMarker(cwd)) {
+    const proceed = await promptYN(
+      'Warning: No project markers found in the current directory. Continue? (y/n) '
+    );
+    if (!proceed) {
+      process.exit(0);
+    }
+  }
+
+  // Step 2: Install skills to all agent formats
+  let warnings;
+  try {
+    warnings = installSkills(cwd);
+  } catch (err) {
+    console.error(`Error: Could not install skills: ${err.message}`);
+    process.exit(1);
+  }
+
+  for (const w of warnings) {
+    console.warn(`Warning: ${w}`);
+  }
+
+  // Step 3: Read or create opensdd.json
+  const manifestPath = path.join(cwd, 'opensdd.json');
+  let manifest = null;
+  let manifestCreated = false;
+
+  if (fs.existsSync(manifestPath)) {
+    try {
+      manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
+    } catch (err) {
+      console.error(`Error: opensdd.json is malformed JSON: ${err.message}`);
+      process.exit(1);
+    }
+  }
+
+  if (!manifest) {
+    manifest = {
+      opensdd: '0.1.0',
+      specs_dir: 'opensdd',
+      deps_dir: '.opensdd.deps',
+    };
+    fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
+    manifestCreated = true;
+  }
+
+  const specsDir = manifest.specs_dir || 'opensdd';
+  const depsDir = manifest.deps_dir || '.opensdd.deps';
+  const specsDirPath = path.join(cwd, specsDir);
+  const depsDirPath = path.join(cwd, depsDir);
+
+  // Step 4: Create specs directory
+  const specsDirCreated = !fs.existsSync(specsDirPath);
+  fs.mkdirSync(specsDirPath, { recursive: true });
+
+  // Step 5: Create skeleton spec.md
+  const specMdPath = path.join(specsDirPath, 'spec.md');
+  let specMdCreated = false;
+  if (!fs.existsSync(specMdPath)) {
+    const projectName = getProjectName(cwd);
+    const skeleton = `# ${projectName}
+
+> TODO: One-line description of what this software does.
+
+## Behavioral Contract
+
+<!-- Define behaviors here. -->
+
+## NOT Specified (Implementation Freedom)
+
+<!-- List aspects left to the implementer's discretion. -->
+
+## Invariants
+
+<!-- List properties that must hold true across all inputs and states. -->
+`;
+    fs.writeFileSync(specMdPath, skeleton);
+    specMdCreated = true;
+  }
+
+  // Step 6: Create deps directory
+  const depsDirCreated = !fs.existsSync(depsDirPath);
+  fs.mkdirSync(depsDirPath, { recursive: true });
+
+  // Step 7: Print output
+  const isReInit = !manifestCreated;
+  const skillVerb = isReInit ? 'updated' : 'installed';
+
+  console.log('Initialized OpenSDD:');
+  console.log(
+    '  Skills installed for: Claude Code, Codex CLI, Cursor, GitHub Copilot, Gemini CLI, Amp'
+  );
+  console.log(`    sdd-manager              ${skillVerb} (6 agent formats)`);
+  console.log(`    sdd-generate             ${skillVerb} (6 agent formats)`);
+  console.log(
+    `  opensdd.json               ${manifestCreated ? 'created' : 'already exists (preserved)'}`
+  );
+  console.log(`  ${specsDir}/                   ${specsDirCreated ? 'created' : 'already exists'}`);
+  console.log(
+    `  ${specsDir}/spec.md            ${specMdCreated ? 'created (skeleton)' : 'already exists (preserved)'}`
+  );
+  console.log(`  ${depsDir}/             ${depsDirCreated ? 'created' : 'already exists'}`);
+}
