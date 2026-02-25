@@ -82,11 +82,14 @@ export async function updateCommand(name, options) {
       process.exit(1);
     }
 
-    // Step d: Compute unified diffs before overwriting
+    // Step d: Compute unified diffs of all spec-owned files before overwriting
     const diffs = {};
     const changedFiles = [];
 
     for (const [fileName, newContent] of Object.entries(newFiles)) {
+      // deviations.md is consumer-owned — skip it in diffs and overwrites
+      if (fileName === 'deviations.md') continue;
+
       const existingPath = path.join(specDir, fileName);
       const oldContent = fs.existsSync(existingPath)
         ? fs.readFileSync(existingPath, 'utf-8')

@@ -32,14 +32,6 @@ export async function installCommand(name, version, options) {
   const depsDirPath = path.join(projectRoot, depsDir);
   const registrySource = resolveRegistry(options, manifest);
 
-  // Step 3: Validate spec name
-  if (!isValidSpecName(name)) {
-    console.error(
-      `Error: Invalid spec name "${name}". Allowed characters: lowercase alphanumeric and hyphens only.`
-    );
-    process.exit(1);
-  }
-
   // Step 2: Check if already installed
   const deps = manifest.dependencies || {};
   const specDirPath = path.join(depsDirPath, name);
@@ -60,6 +52,14 @@ export async function installCommand(name, version, options) {
     if (!useVersion) {
       useVersion = deps[name].version;
     }
+  }
+
+  // Step 3: Validate spec name
+  if (!isValidSpecName(name)) {
+    console.error(
+      `Error: Invalid spec name "${name}". Allowed characters: lowercase alphanumeric and hyphens only.`
+    );
+    process.exit(1);
   }
 
   // Step 4: Fetch index.json
@@ -117,6 +117,8 @@ export async function installCommand(name, version, options) {
 
   fs.mkdirSync(specDirPath, { recursive: true });
   for (const [fileName, content] of Object.entries(files)) {
+    // Invariant: opensdd install MUST NOT create a deviations.md file
+    if (fileName === 'deviations.md') continue;
     fs.writeFileSync(path.join(specDirPath, fileName), content);
   }
 

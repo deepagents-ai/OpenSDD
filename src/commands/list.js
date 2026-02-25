@@ -1,7 +1,19 @@
+import { findManifestPath, readManifest } from '../lib/manifest.js';
 import { resolveRegistry, listRegistrySpecs } from '../lib/registry.js';
 
 export async function listCommand(options) {
-  const registrySource = resolveRegistry(options);
+  // list doesn't require opensdd.json, but uses it for registry resolution if available
+  let manifest = null;
+  const manifestPath = findManifestPath(process.cwd());
+  if (manifestPath) {
+    try {
+      manifest = readManifest(manifestPath);
+    } catch {
+      // ignore — list works without opensdd.json
+    }
+  }
+
+  const registrySource = resolveRegistry(options, manifest);
 
   let specs;
   try {

@@ -53,15 +53,18 @@ export function validateSpec(specDir) {
 function validateSpecMd(content, result) {
   const lines = content.split('\n');
 
-  // Check for H1 header
-  const h1Index = lines.findIndex((l) => /^# .+/.test(l));
-  if (h1Index === -1) {
+  // Check for H1 header — spec says "MUST start with an H1 header"
+  // Find the first non-empty line
+  const firstContentIndex = lines.findIndex((l) => l.trim().length > 0);
+  const firstContentLine = firstContentIndex !== -1 ? lines[firstContentIndex] : '';
+
+  if (!/^# .+/.test(firstContentLine)) {
     result.specErrors.push('Missing required: H1 header with blockquote summary');
     result.errors.push('spec.md: Missing H1 header with blockquote summary');
   } else {
     // Check for blockquote summary after H1
     let foundBlockquote = false;
-    for (let i = h1Index + 1; i < Math.min(h1Index + 5, lines.length); i++) {
+    for (let i = firstContentIndex + 1; i < Math.min(firstContentIndex + 5, lines.length); i++) {
       if (lines[i].startsWith('> ')) {
         foundBlockquote = true;
         break;

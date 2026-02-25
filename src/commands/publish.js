@@ -162,7 +162,11 @@ export async function publishCommand(options) {
     const registryDir = path.join(tmpDir, 'registry', name, version);
     fs.mkdirSync(registryDir, { recursive: true });
 
-    // Build manifest.json
+    // Copy all spec files first
+    copyDirRecursive(specsDirPath, registryDir);
+
+    // Build manifest.json from publish fields (written after copy so it takes precedence
+    // over any manifest.json that might exist in the specs directory)
     const publishManifest = {
       name,
       version,
@@ -174,9 +178,6 @@ export async function publishCommand(options) {
       path.join(registryDir, 'manifest.json'),
       JSON.stringify(publishManifest, null, 2) + '\n'
     );
-
-    // Copy all spec files
-    copyDirRecursive(specsDirPath, registryDir);
 
     console.log(`  Created registry entry    registry/${name}/${version}/`);
 
