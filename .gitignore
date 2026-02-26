@@ -39,10 +39,7 @@ logs/
 remote/deploy-tool/.env
 
 # Agents
-.agents
-.claude
-.cursor
-.github/instructions
+.claude/settings.local.json
 
 # Python
 .venv/
