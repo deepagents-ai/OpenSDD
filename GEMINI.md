@@ -1,5 +1,3 @@
-You MUST refer to CONTRIBUTING.md
-
 <!-- OpenSDD Skills (managed by opensdd init — do not edit this section) -->
 @.claude/skills/sdd-manager/SKILL.md
 @.claude/skills/sdd-manager/references/spec-format.md
