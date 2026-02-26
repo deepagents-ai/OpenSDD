@@ -8,11 +8,30 @@ const __dirname = path.dirname(__filename);
 const OPENSDD_SECTION_START = '<!-- OpenSDD Skills (managed by opensdd init \u2014 do not edit this section) -->';
 const OPENSDD_SECTION_END = '<!-- /OpenSDD Skills -->';
 
+function parseFrontmatter(content) {
+  if (!content.startsWith('---\n')) return { frontmatter: {}, body: content };
+  const endIdx = content.indexOf('\n---\n', 4);
+  if (endIdx === -1) return { frontmatter: {}, body: content };
+
+  const yamlStr = content.substring(4, endIdx);
+  const body = content.substring(endIdx + 5);
+
+  const frontmatter = {};
+  for (const line of yamlStr.split('\n')) {
+    const match = line.match(/^(\w+):\s*"([^"]*)"\s*$/) || line.match(/^(\w+):\s*(.*?)\s*$/);
+    if (match) {
+      frontmatter[match[1]] = match[2];
+    }
+  }
+  return { frontmatter, body };
+}
+
 function getSkillContent() {
   const opensddDir = path.resolve(__dirname, '../../opensdd');
+  const skillsDir = path.join(opensddDir, 'skills');
   return {
-    sddManager: fs.readFileSync(path.join(opensddDir, 'sdd-manager.md'), 'utf-8'),
-    sddGenerate: fs.readFileSync(path.join(opensddDir, 'sdd-generate.md'), 'utf-8'),
+    sddManager: fs.readFileSync(path.join(skillsDir, 'sdd-manager.md'), 'utf-8'),
+    sddGenerate: fs.readFileSync(path.join(skillsDir, 'sdd-generate.md'), 'utf-8'),
     specFormat: fs.readFileSync(path.join(opensddDir, 'spec-format.md'), 'utf-8'),
   };
 }
@@ -121,19 +140,22 @@ export function installSkills(projectRoot) {
     const cursorBase = path.join(projectRoot, '.cursor', 'rules');
     ensureDir(cursorBase);
 
+    const { frontmatter: managerFm, body: managerBody } = parseFrontmatter(skills.sddManager);
+    const { frontmatter: generateFm, body: generateBody } = parseFrontmatter(skills.sddGenerate);
+
     const sddManagerCursor = `---
-description: "Implement, update, and verify installed OpenSDD dependency specs. Use when the user asks to implement a spec, process a spec update, check conformance, or create a deviation."
+description: "${managerFm.description}"
 alwaysApply: false
 ---
 
-${skills.sddManager}`;
+${managerBody}`;
 
     const sddGenerateCursor = `---
-description: "Generate an OpenSDD behavioral spec from existing code. Use when the user asks to generate, create, or extract a spec from a repository or codebase."
+description: "${generateFm.description}"
 alwaysApply: false
 ---
 
-${skills.sddGenerate}`;
+${generateBody}`;
 
     const specFormatCursor = `---
 description: "OpenSDD spec format reference. Defines the structure and rules for behavioral specifications. Referenced by sdd-manager and sdd-generate skills."
@@ -154,23 +176,20 @@ ${skills.specFormat}`;
     const copilotBase = path.join(projectRoot, '.github', 'instructions');
     ensureDir(copilotBase);
 
-    const copilotFrontmatter = `---
-applyTo: "**"
----
-
-`;
+    const { frontmatter: managerFmCp, body: managerBodyCp } = parseFrontmatter(skills.sddManager);
+    const { frontmatter: generateFmCp, body: generateBodyCp } = parseFrontmatter(skills.sddGenerate);
 
     writeFileSync(
       path.join(copilotBase, 'sdd-manager.instructions.md'),
-      copilotFrontmatter + skills.sddManager
+      `---\napplyTo: "**"\ndescription: "${managerFmCp.description}"\n---\n\n${managerBodyCp}`
     );
     writeFileSync(
       path.join(copilotBase, 'sdd-generate.instructions.md'),
-      copilotFrontmatter + skills.sddGenerate
+      `---\napplyTo: "**"\ndescription: "${generateFmCp.description}"\n---\n\n${generateBodyCp}`
     );
     writeFileSync(
       path.join(copilotBase, 'opensdd-spec-format.instructions.md'),
-      copilotFrontmatter + skills.specFormat
+      `---\napplyTo: "**"\ndescription: "OpenSDD spec format reference. Defines the structure and rules for behavioral specifications. Referenced by sdd-manager and sdd-generate skills."\n---\n\n${skills.specFormat}`
     );
   } catch (err) {
     warnings.push(`Could not install GitHub Copilot skills: ${err.message}`);

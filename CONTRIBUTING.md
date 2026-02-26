@@ -32,8 +32,8 @@ OpenSDD specs govern OpenSDD's own development. The specs live in the `opensdd/`
 | File | Purpose |
 |------|---------|
 | `opensdd/cli.md` | CLI behavioral contract |
-| `opensdd/sdd-manager.md` | sdd-manager skill spec |
-| `opensdd/sdd-generate.md` | sdd-generate skill spec |
+| `opensdd/skills/sdd-manager.md` | sdd-manager skill spec |
+| `opensdd/skills/sdd-generate.md` | sdd-generate skill spec |
 | `opensdd/spec-format.md` | Spec format spec |
 
 Run `opensdd init` to bootstrap the agent skills if you have not already done so.

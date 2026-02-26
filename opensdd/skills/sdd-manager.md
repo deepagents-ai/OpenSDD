@@ -1,3 +1,7 @@
+---
+name: sdd-manager
+description: "Implement, update, and verify installed OpenSDD dependency specs. Use when the user asks to implement a spec, process a spec update, check conformance, or create a deviation."
+---
 # SDD Manager
 
 > Teaches agents how to implement, update, and verify installed dependency specs in an OpenSDD-compliant project.

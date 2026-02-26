@@ -81,38 +81,38 @@ Initialized OpenSDD:
 
 ### Skill Installation Mapping
 
-`opensdd init` installs both skills (sdd-manager and sdd-generate) into the native configuration format of each supported coding agent. The canonical skill content is authored as markdown source files (`sdd-manager.md`, `sdd-generate.md`, `spec-format.md`). The CLI transforms these into each agent's expected format during installation.
+`opensdd init` installs both skills (sdd-manager and sdd-generate) into the native configuration format of each supported coding agent. The canonical skill content is authored as markdown source files in `opensdd/skills/` (`skills/sdd-manager.md`, `skills/sdd-generate.md`) and `opensdd/` (`spec-format.md`). Source skill files use Agent Skills frontmatter (`name`, `description`) which the CLI parses and transforms per-agent format during installation.
 
 All installed skill files are **spec-owned** — they are overwritten on every `opensdd init` and MUST NOT be edited by the user.
 
 #### Claude Code (Agent Skills standard)
 
-Each skill is a directory with a `SKILL.md` and a `references/` subdirectory. Claude Code auto-discovers skills in `.claude/skills/`.
+Each skill is a directory with a `SKILL.md` and a `references/` subdirectory. Claude Code auto-discovers skills in `.claude/skills/`. The `SKILL.md` files include Agent Skills frontmatter with `name` and `description` fields, copied as-is from the source skill files.
 
 ```
 .claude/skills/
   sdd-manager/
-    SKILL.md                    ← sdd-manager.md
+    SKILL.md                    ← skills/sdd-manager.md
     references/
       spec-format.md            ← spec-format.md
   sdd-generate/
-    SKILL.md                    ← sdd-generate.md
+    SKILL.md                    ← skills/sdd-generate.md
     references/
       spec-format.md            ← spec-format.md
 ```
 
 #### OpenAI Codex CLI (Agent Skills standard)
 
-Codex CLI follows the same Agent Skills standard but discovers skills in `.agents/skills/`.
+Codex CLI follows the same Agent Skills standard but discovers skills in `.agents/skills/`. The `SKILL.md` files include Agent Skills frontmatter with `name` and `description` fields, copied as-is from the source skill files.
 
 ```
 .agents/skills/
   sdd-manager/
-    SKILL.md                    ← sdd-manager.md
+    SKILL.md                    ← skills/sdd-manager.md
     references/
       spec-format.md            ← spec-format.md
   sdd-generate/
-    SKILL.md                    ← sdd-generate.md
+    SKILL.md                    ← skills/sdd-generate.md
     references/
       spec-format.md            ← spec-format.md
 ```
@@ -123,9 +123,9 @@ Cursor discovers rules as `.md` or `.mdc` files in `.cursor/rules/`. Each skill 
 
 ```
 .cursor/rules/
-  sdd-manager.md                ← sdd-manager.md with frontmatter
-  sdd-generate.md               ← sdd-generate.md with frontmatter
-  opensdd-spec-format.md        ← spec-format.md with frontmatter
+  sdd-manager.md                ← skills/sdd-manager.md with Cursor frontmatter
+  sdd-generate.md               ← skills/sdd-generate.md with Cursor frontmatter
+  opensdd-spec-format.md        ← spec-format.md with Cursor frontmatter
 ```
 
 Frontmatter for `sdd-manager.md`:
@@ -158,15 +158,32 @@ Copilot discovers instructions as `.instructions.md` files in `.github/instructi
 
 ```
 .github/instructions/
-  sdd-manager.instructions.md   ← sdd-manager.md with frontmatter
-  sdd-generate.instructions.md  ← sdd-generate.md with frontmatter
-  opensdd-spec-format.instructions.md  ← spec-format.md with frontmatter
+  sdd-manager.instructions.md   ← skills/sdd-manager.md with Copilot frontmatter
+  sdd-generate.instructions.md  ← skills/sdd-generate.md with Copilot frontmatter
+  opensdd-spec-format.instructions.md  ← spec-format.md with Copilot frontmatter
 ```
 
-Frontmatter for each file:
+Frontmatter for `sdd-manager.instructions.md`:
 ```yaml
 ---
 applyTo: "**"
+description: "Implement, update, and verify installed OpenSDD dependency specs. Use when the user asks to implement a spec, process a spec update, check conformance, or create a deviation."
+---
+```
+
+Frontmatter for `sdd-generate.instructions.md`:
+```yaml
+---
+applyTo: "**"
+description: "Generate an OpenSDD behavioral spec from existing code. Use when the user asks to generate, create, or extract a spec from a repository or codebase."
+---
+```
+
+Frontmatter for `opensdd-spec-format.instructions.md`:
+```yaml
+---
+applyTo: "**"
+description: "OpenSDD spec format reference. Defines the structure and rules for behavioral specifications. Referenced by sdd-manager and sdd-generate skills."
 ---
 ```
 

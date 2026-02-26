@@ -189,6 +189,31 @@ describe('opensdd CLI', () => {
       assert.equal(manifest.opensdd, '0.1.0');
       assert.equal(manifest.specs_dir, 'opensdd');
       assert.equal(manifest.deps_dir, '.opensdd.deps');
+
+      // Verify SKILL.md files contain Agent Skills frontmatter
+      const claudeManagerSkill = fs.readFileSync(
+        path.join(TEST_PROJECT, '.claude', 'skills', 'sdd-manager', 'SKILL.md'),
+        'utf-8'
+      );
+      assert.match(claudeManagerSkill, /^---\n/);
+      assert.match(claudeManagerSkill, /name: sdd-manager/);
+      assert.match(claudeManagerSkill, /description: "/);
+
+      const claudeGenerateSkill = fs.readFileSync(
+        path.join(TEST_PROJECT, '.claude', 'skills', 'sdd-generate', 'SKILL.md'),
+        'utf-8'
+      );
+      assert.match(claudeGenerateSkill, /^---\n/);
+      assert.match(claudeGenerateSkill, /name: sdd-generate/);
+      assert.match(claudeGenerateSkill, /description: "/);
+
+      const codexManagerSkill = fs.readFileSync(
+        path.join(TEST_PROJECT, '.agents', 'skills', 'sdd-manager', 'SKILL.md'),
+        'utf-8'
+      );
+      assert.match(codexManagerSkill, /^---\n/);
+      assert.match(codexManagerSkill, /name: sdd-manager/);
+      assert.match(codexManagerSkill, /description: "/);
     });
 
     it('should infer project name from package.json', () => {

@@ -1,3 +1,7 @@
+---
+name: sdd-generate
+description: "Generate an OpenSDD behavioral spec from existing code. Use when the user asks to generate, create, or extract a spec from a repository or codebase."
+---
 # SDD Generate
 
 > Guides an AI agent through analyzing a repository and generating a behavioral spec in the OpenSDD format.
@@ -12,7 +16,7 @@ Before starting, you need:
 
 1. A **target repository** — a GitHub URL or local path provided by the user.
 2. A **scope** — which capability, module, or function to spec. If the user provides a whole-repo URL without scoping, ask them to narrow it before proceeding. A spec for "the entire lodash library" is not useful. A spec for "lodash's string slugification" is.
-3. The **spec-format reference** — read [spec-format.md](spec-format.md) to understand the required output structure.
+3. The **spec-format reference** — read [spec-format.md](../spec-format.md) to understand the required output structure.
 4. A **working directory** — confirm with the user where the generated spec should be written. If the project has `opensdd.json`, use the directory specified by `specs_dir` (default: `opensdd/`). If the project is not yet initialized, ask the user where to output the spec — a common default is `opensdd/` in the current project root. The agent does not need `opensdd.json` to exist before generating a spec.
 
 ## Output
@@ -153,7 +157,7 @@ Always update `_notes/gaps.md` at the end of each pass with what still needs to 
 - The full `spec.md` draft
 - `_notes/inventory.md` — verify every public API item is covered
 - `_notes/gaps.md` — verify no critical gaps remain
-- [spec-format.md](spec-format.md) — verify structural compliance
+- [spec-format.md](../spec-format.md) — verify structural compliance
 
 **Write:**
 - `spec.md` — add or complete:

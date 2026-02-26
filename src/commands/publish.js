@@ -145,14 +145,13 @@ export async function publishCommand(options) {
   }
 
   const { owner, repo } = parseGitHubUrl(registrySource);
-  const repoUrl = `https://github.com/${owner}/${repo}.git`;
 
   // Step 10: Clone, create branch, add files, push, create PR
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'opensdd-publish-'));
 
   try {
-    // Clone
-    execSync(`git clone --depth 1 "${repoUrl}" "${tmpDir}"`, { stdio: 'pipe' });
+    // Clone using gh to respect the user's configured git protocol (ssh vs https)
+    execSync(`gh repo clone "${owner}/${repo}" "${tmpDir}" -- --depth 1`, { stdio: 'pipe' });
 
     // Create branch
     execSync(`git checkout -b "${branchName}"`, { cwd: tmpDir, stdio: 'pipe' });

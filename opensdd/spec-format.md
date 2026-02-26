@@ -440,11 +440,11 @@ This is a transient artifact. `opensdd update apply` reads this file, applies th
 
 ### SDD-Manager Skill
 
-The sdd-manager skill teaches agents how to implement, update, and verify installed dependency specs. It is installed once per project via `opensdd init` alongside the sdd-generate skill, into each supported agent's configuration directory. See [sdd-manager.md](sdd-manager.md) for the full skill workflow, including implementation defaults, the project conventions check, and the verification protocol.
+The sdd-manager skill teaches agents how to implement, update, and verify installed dependency specs. It is installed once per project via `opensdd init` alongside the sdd-generate skill, into each supported agent's configuration directory. See [sdd-manager.md](skills/sdd-manager.md) for the full skill workflow, including implementation defaults, the project conventions check, and the verification protocol.
 
 ### SDD-Generate Skill
 
-The sdd-generate skill teaches agents how to generate a spec from existing code. See [sdd-generate.md](sdd-generate.md) for the full skill workflow.
+The sdd-generate skill teaches agents how to generate a spec from existing code. See [sdd-generate.md](skills/sdd-generate.md) for the full skill workflow.
 
 ### Versioning
 
