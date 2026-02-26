@@ -14,6 +14,14 @@ The CLI is published to npm as `opensdd` and invoked as `opensdd`.
 
 ## Behavioral Contract
 
+### `opensdd --version`
+
+Prints the current package version from `package.json` and exits. The version MUST be read from the npm package manifest at runtime — it MUST NOT be hardcoded.
+
+### `opensdd --help`
+
+Prints usage information including the current version, available commands, and options. The version shown MUST be read from `package.json` at runtime.
+
 ### `opensdd init`
 
 Initializes the OpenSDD protocol in the current project.

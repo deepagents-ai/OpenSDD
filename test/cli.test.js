@@ -5,6 +5,7 @@ import path from 'node:path';
 import { execSync } from 'node:child_process';
 
 const CLI = path.resolve('bin/opensdd.js');
+const PKG = JSON.parse(fs.readFileSync(path.resolve('package.json'), 'utf-8'));
 const FIXTURES = path.join('/tmp', 'opensdd-test-fixtures');
 const TEST_PROJECT = path.join('/tmp', 'opensdd-test-project');
 const TEST_REGISTRY = path.join('/tmp', 'opensdd-test-registry');
@@ -130,13 +131,13 @@ describe('opensdd CLI', () => {
   describe('--help and --version', () => {
     it('should print help', () => {
       const output = run('--help', '/tmp');
-      assert.match(output, /opensdd v0\.1\.0/);
+      assert.match(output, new RegExp(`opensdd v${PKG.version.replace(/\./g, '\\.')}`));
       assert.match(output, /Commands:/);
     });
 
     it('should print version', () => {
       const output = run('--version', '/tmp');
-      assert.equal(output.trim(), '0.1.0');
+      assert.equal(output.trim(), PKG.version);
     });
   });
 

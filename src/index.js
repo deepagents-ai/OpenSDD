@@ -1,3 +1,4 @@
+import { createRequire } from 'node:module';
 import { initCommand } from './commands/init.js';
 import { listCommand } from './commands/list.js';
 import { installCommand } from './commands/install.js';
@@ -27,7 +28,9 @@ function parseArgs(argv) {
 }
 
 function printHelp() {
-  console.log(`opensdd v0.1.0 - Open Spec-Driven Development CLI
+  const require = createRequire(import.meta.url);
+  const pkg = require('../package.json');
+  console.log(`opensdd v${pkg.version} - Open Spec-Driven Development CLI
 
 Usage: opensdd <command> [options]
 
@@ -102,9 +105,12 @@ async function main() {
       }
 
       case '--version':
-      case '-v':
-        console.log('0.1.0');
+      case '-v': {
+        const require = createRequire(import.meta.url);
+        const pkg = require('../package.json');
+        console.log(pkg.version);
         break;
+      }
 
       case '--help':
       case '-h':
