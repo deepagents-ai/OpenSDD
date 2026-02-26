@@ -30,9 +30,9 @@ Initializes the OpenSDD protocol in the current project.
 
 1. Verify the current directory is a project root (contains `package.json`, `pyproject.toml`, `Cargo.toml`, `go.mod`, `.git`, `opensdd.json`, or similar project markers). If no project marker is found, warn the user and ask for confirmation to proceed.
 2. Install both skills (sdd-manager and sdd-generate) into all supported agent configuration directories. If already present, overwrite — skills are always spec-owned. The full installation mapping is defined in the **Skill Installation Mapping** section below.
-3. If `opensdd.json` does not exist at the project root, create it with default contents: `{ "opensdd": "0.1.0", "specs_dir": "opensdd", "deps_dir": ".opensdd.deps" }`. The `registry`, `publish`, and `dependencies` fields are intentionally omitted from the default — they are optional. When `registry` is absent, the CLI defaults to `https://github.com/deepagents-ai/opensdd` per the registry source resolution logic. If `opensdd.json` already exists, leave it untouched.
-4. Create the `opensdd/` directory (or the directory specified by `specs_dir` in an existing `opensdd.json`) if it does not exist.
-5. If `<specs_dir>/spec.md` does not exist, create a skeleton `spec.md` with placeholder sections:
+3. If `opensdd.json` does not exist at the project root, create it with default contents: `{ "opensdd": "0.1.0", "specsDir": "opensdd", "depsDir": ".opensdd.deps" }`. The `registry`, `publish`, and `dependencies` fields are intentionally omitted from the default — they are optional. When `registry` is absent, the CLI defaults to `https://github.com/deepagents-ai/opensdd` per the registry source resolution logic. If `opensdd.json` already exists, leave it untouched.
+4. Create the `opensdd/` directory (or the directory specified by `specsDir` in an existing `opensdd.json`) if it does not exist.
+5. If `<specsDir>/spec.md` does not exist, create a skeleton `spec.md` with placeholder sections:
    ```markdown
    # {project-name}
 
@@ -51,7 +51,7 @@ Initializes the OpenSDD protocol in the current project.
    <!-- List properties that must hold true across all inputs and states. -->
    ```
    The `{project-name}` placeholder SHOULD be inferred from the nearest project manifest (e.g., `name` in `package.json`) or default to the directory name. If `spec.md` already exists, leave it untouched.
-6. Create the `.opensdd.deps/` directory (or the directory specified by `deps_dir` in an existing `opensdd.json`) if it does not exist.
+6. Create the `.opensdd.deps/` directory (or the directory specified by `depsDir` in an existing `opensdd.json`) if it does not exist.
 7. Print a success message.
 
 - `opensdd init` in a fresh project MUST produce the output below
@@ -270,12 +270,12 @@ Fetches a spec from the registry and installs it as a dependency.
 #### Behavior
 
 1. Verify `opensdd.json` exists at the project root. If not, print a message suggesting `opensdd init` first and exit with code 1.
-2. Check if the spec `<name>` already exists as a key in `opensdd.json`'s `dependencies` object. If it does AND the spec directory exists in `<deps_dir>`, print a message indicating the spec is already installed and suggest `opensdd update` instead. Exit with code 1. If the entry exists BUT the spec directory is missing, treat as a re-install: log a message noting the stale entry, then continue to step 4 using the version from the existing entry (unless `[version]` is explicitly provided, in which case use that).
+2. Check if the spec `<name>` already exists as a key in `opensdd.json`'s `dependencies` object. If it does AND the spec directory exists in `<depsDir>`, print a message indicating the spec is already installed and suggest `opensdd update` instead. Exit with code 1. If the entry exists BUT the spec directory is missing, treat as a re-install: log a message noting the stale entry, then continue to step 4 using the version from the existing entry (unless `[version]` is explicitly provided, in which case use that).
 3. Validate the spec name (lowercase alphanumeric and hyphens only).
 4. Fetch `index.json` from `registry/<name>/` in the configured registry source. If `[version]` is provided, use that version; otherwise use `latest` from `index.json`.
-5. Read `manifest.json` from `registry/<name>/<version>/` to get spec_format and dependencies.
-6. Copy all files from `registry/<name>/<version>/` into `<deps_dir>/<name>/` (including `manifest.json`, `spec.md`, and any supplementary files).
-7. Add an entry to `opensdd.json` under `dependencies.<name>` with fields from `manifest.json` (`version`, `spec_format`), the resolved registry URL as `source`, and consumer-managed fields initialized to defaults: `implementation: null`, `tests: null`, `has_deviations: false`.
+5. Read `manifest.json` from `registry/<name>/<version>/` to get specFormat and dependencies.
+6. Copy all files from `registry/<name>/<version>/` into `<depsDir>/<name>/` (including `manifest.json`, `spec.md`, and any supplementary files).
+7. Add an entry to `opensdd.json` under `dependencies.<name>` with fields from `manifest.json` (`version`, `specFormat`), the resolved registry URL as `source`, and consumer-managed fields initialized to defaults: `implementation: null`, `tests: null`, `hasDeviations: false`.
 8. If the spec has `dependencies`, check whether each dependency name exists as a key in `opensdd.json`'s `dependencies` object. If any are missing, print a warning listing the missing dependencies and suggesting `opensdd install` for each.
 9. Print a success message.
 
@@ -310,15 +310,15 @@ Fetches the latest version of installed dependency specs from the registry, upda
 
 1. If `<name>` is provided, update that single spec. If no name is provided, update all installed dependencies.
 2. For each spec being updated:
-   a. Read the spec's entry in `opensdd.json` `dependencies` to get the installed version and `spec_format` version.
+   a. Read the spec's entry in `opensdd.json` `dependencies` to get the installed version and `specFormat` version.
    b. Fetch `index.json` from the registry to get the latest version. Read `manifest.json` from the latest version directory.
    c. If the registry version matches the installed version, skip with a message "already up to date".
    d. Before overwriting, compute unified diffs of all spec-owned files that will change.
-   e. Overwrite all spec-owned files in `<deps_dir>/<name>/` with the new version from the registry (`manifest.json`, `spec.md`, and any supplementary files).
+   e. Overwrite all spec-owned files in `<depsDir>/<name>/` with the new version from the registry (`manifest.json`, `spec.md`, and any supplementary files).
    f. MUST NOT overwrite or delete `deviations.md`. The CLI MUST NOT create, modify, or delete `deviations.md` under any circumstances.
    g. Create the staging directory `.opensdd.deps/.updates/<name>/` and write two files. If a pending update already exists for this spec, overwrite it and note the replacement in the output.
-      - `changeset.md` — contains previous and new version, `spec_format` version change (if any), and unified diffs from step (d).
-      - `manifest.json` — contains the metadata needed to finalize the update in `opensdd.json`: `name`, `previous_version`, `version`, `source`, `spec_format`.
+      - `changeset.md` — contains previous and new version, `specFormat` version change (if any), and unified diffs from step (d).
+      - `manifest.json` — contains the metadata needed to finalize the update in `opensdd.json`: `name`, `previousVersion`, `version`, `source`, `specFormat`.
 3. Print a summary of what was updated.
 
 #### Input
@@ -376,7 +376,7 @@ Applies a staged update to `opensdd.json`, confirming that the migration is comp
 3. Prompt the user for confirmation (y/n). If declined, exit with code 0.
 4. For each pending update:
    a. Read `.opensdd.deps/.updates/<name>/manifest.json` to get the update metadata.
-   b. Update the `opensdd.json` `dependencies.<name>` entry: set `version`, `source`, and `spec_format` from the manifest. Preserve all consumer-managed fields (`implementation`, `tests`, `has_deviations`).
+   b. Update the `opensdd.json` `dependencies.<name>` entry: set `version`, `source`, and `specFormat` from the manifest. Preserve all consumer-managed fields (`implementation`, `tests`, `hasDeviations`).
    c. Delete the `.opensdd.deps/.updates/<name>/` directory.
 5. If `.opensdd.deps/.updates/` is now empty, delete it.
 6. Print a summary.
@@ -431,14 +431,14 @@ Publishes an authored spec to the registry.
 
 1. Verify `opensdd.json` exists at the project root. If not, print a message suggesting `opensdd init` first and exit with code 1.
 2. Verify `opensdd.json` has a `publish` object. If not, print an error suggesting the user add a `publish` section and exit with code 1.
-3. Read the `publish` object to get `name`, `version`, `description`, `spec_format`, `dependencies`.
-4. Verify `<specs_dir>/spec.md` exists. If not, print error and exit with code 1.
-5. Run validation on the `<specs_dir>/` directory (same logic as `opensdd validate`). If validation fails with errors, print them and exit with code 1.
+3. Read the `publish` object to get `name`, `version`, `description`, `specFormat`, `dependencies`.
+4. Verify `<specsDir>/spec.md` exists. If not, print error and exit with code 1.
+5. Run validation on the `<specsDir>/` directory (same logic as `opensdd validate`). If validation fails with errors, print them and exit with code 1.
 6. Resolve the registry source. The registry MUST be a GitHub repository URL for publishing.
 7. Fetch `index.json` from `registry/<name>/` if it exists. If the version being published already exists in `index.json`, print error suggesting a version bump and exit with code 1.
 8. Construct the registry entry:
-   a. Build `manifest.json` from the `opensdd.json` `publish` fields (`name`, `version`, `description`, `spec_format`, `dependencies`).
-   b. Collect all files from `<specs_dir>/`.
+   a. Build `manifest.json` from the `opensdd.json` `publish` fields (`name`, `version`, `description`, `specFormat`, `dependencies`).
+   b. Collect all files from `<specsDir>/`.
 9. If `--branch <name>` was provided, use that as the branch name. Otherwise, prompt the user for a branch name.
 10. Clone the registry repo (shallow), create a new branch with the chosen name, and:
     a. Create `registry/<name>/<version>/` with `manifest.json` and all spec files.
@@ -472,7 +472,7 @@ Published. Spec will be available after PR is merged.
 
 - OpenSDD not initialized: print message suggesting `opensdd init` and exit with code 1.
 - No `publish` section in `opensdd.json`: print error and exit with code 1.
-- `<specs_dir>/spec.md` missing: print error and exit with code 1.
+- `<specsDir>/spec.md` missing: print error and exit with code 1.
 - Spec validation fails: print validation errors and exit with code 1.
 - Version already exists in registry: print error suggesting version bump and exit with code 1.
 - Registry is not a GitHub URL: print error (publishing requires a GitHub registry) and exit with code 1.
@@ -487,8 +487,8 @@ Shows the status of the authored spec and all installed dependency specs in the 
 
 1. Read `opensdd.json`.
 2. If `publish` exists, print authored spec section showing the spec's name, version, and directory.
-3. If `dependencies` exists and has entries, iterate the `dependencies` object. For each entry, read its consumer-managed fields and check for the presence of `deviations.md` in `<deps_dir>/<name>/`. Print a dependency status table.
-4. Check for untracked directories: spec directories in `<deps_dir>` that have no corresponding `opensdd.json` dependency entry. Warn about any found.
+3. If `dependencies` exists and has entries, iterate the `dependencies` object. For each entry, read its consumer-managed fields and check for the presence of `deviations.md` in `<depsDir>/<name>/`. Print a dependency status table.
+4. Check for untracked directories: spec directories in `<depsDir>` that have no corresponding `opensdd.json` dependency entry. Warn about any found.
 
 #### Output
 
@@ -520,7 +520,7 @@ Validates that a spec directory conforms to the OpenSDD spec-format.
 3. Check for required files: `spec.md` MUST exist.
 4. If `manifest.json` exists, validate it:
    a. `name` MUST be present.
-   b. `spec_format` MUST be present and be a recognized version.
+   b. `specFormat` MUST be present and be a recognized version.
    c. `version` MUST be present and be valid semver.
 5. Validate `spec.md`:
    a. MUST start with an H1 header followed by a blockquote summary.
@@ -607,7 +607,7 @@ For local paths, the CLI MUST read directly from the filesystem. This supports d
 During `opensdd update apply`, the CLI MUST preserve these `opensdd.json` fields for each affected dependency entry:
 - `implementation`
 - `tests`
-- `has_deviations`
+- `hasDeviations`
 
 The CLI reads the existing `opensdd.json` dependency entry, applies updated metadata from the staged manifest, then re-applies the consumer-managed field values. Note that `opensdd update` does NOT touch `opensdd.json` at all — it only stages the update. The `opensdd.json` entry continues to reflect the old version until `opensdd update apply` is called.
 
@@ -651,7 +651,7 @@ The CLI reads the existing `opensdd.json` dependency entry, applies updated meta
 - The Claude Code skill installation (`.claude/skills/`) MUST always be present since Gemini CLI and Amp reference it
 - `opensdd.json` MUST be created by `opensdd init` if it does not exist, and MUST NOT be overwritten if it already exists
 - Consumer-managed `opensdd.json` fields MUST survive all update operations
-- Every installed dependency MUST have both a directory in `deps_dir` and an entry in `opensdd.json` `dependencies`
+- Every installed dependency MUST have both a directory in `depsDir` and an entry in `opensdd.json` `dependencies`
 - All commands MUST exit with code 0 on success and code 1 on error
 - The CLI MUST NOT invoke an AI model or coding agent
 - `opensdd publish` MUST NOT allow overwriting an existing version in the registry

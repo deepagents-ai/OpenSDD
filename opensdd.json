@@ -1,5 +1,5 @@
 {
   "opensdd": "0.1.0",
-  "specs_dir": "opensdd",
-  "deps_dir": ".opensdd.deps"
+  "specsDir": "opensdd",
+  "depsDir": ".opensdd.deps"
 }

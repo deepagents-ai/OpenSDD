@@ -115,8 +115,8 @@ export async function updateCommand(name, options) {
     fs.mkdirSync(updatesDir, { recursive: true });
 
     // Write changeset.md
-    const specFormatOld = entry.spec_format || '0.1.0';
-    const specFormatNew = newManifest.spec_format || '0.1.0';
+    const specFormatOld = entry.specFormat || '0.1.0';
+    const specFormatNew = newManifest.specFormat || '0.1.0';
     const specFormatChange =
       specFormatOld === specFormatNew
         ? 'unchanged'
@@ -142,10 +142,10 @@ export async function updateCommand(name, options) {
     // Write manifest.json for staging
     const stageManifest = {
       name: specName,
-      previous_version: entry.version,
+      previousVersion: entry.version,
       version: latestVersion,
       source: registrySource,
-      spec_format: newManifest.spec_format || '0.1.0',
+      specFormat: newManifest.specFormat || '0.1.0',
     };
 
     fs.writeFileSync(

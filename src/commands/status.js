@@ -53,7 +53,7 @@ export async function statusCommand() {
       // Check for deviations
       let deviationInfo = '';
       const deviationsPath = path.join(projectRoot, depsDir, depName, 'deviations.md');
-      if (entry.has_deviations || fs.existsSync(deviationsPath)) {
+      if (entry.hasDeviations || fs.existsSync(deviationsPath)) {
         if (fs.existsSync(deviationsPath)) {
           const content = fs.readFileSync(deviationsPath, 'utf-8');
           const deviationCount = (content.match(/^## /gm) || []).length;

@@ -132,10 +132,10 @@ export async function installCommand(name, version, options) {
   manifest.dependencies[name] = {
     version: resolvedVersion,
     source: registrySource,
-    spec_format: specManifest.spec_format || '0.1.0',
+    specFormat: specManifest.specFormat || '0.1.0',
     implementation: existingEntry?.implementation ?? null,
     tests: existingEntry?.tests ?? null,
-    has_deviations: existingEntry?.has_deviations ?? false,
+    hasDeviations: existingEntry?.hasDeviations ?? false,
   };
 
   writeManifest(manifestPath, manifest);

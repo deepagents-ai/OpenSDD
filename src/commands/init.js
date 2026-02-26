@@ -118,15 +118,15 @@ export async function initCommand() {
   if (!manifest) {
     manifest = {
       opensdd: '0.1.0',
-      specs_dir: 'opensdd',
-      deps_dir: '.opensdd.deps',
+      specsDir: 'opensdd',
+      depsDir: '.opensdd.deps',
     };
     fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
     manifestCreated = true;
   }
 
-  const specsDir = manifest.specs_dir || 'opensdd';
-  const depsDir = manifest.deps_dir || '.opensdd.deps';
+  const specsDir = manifest.specsDir || 'opensdd';
+  const depsDir = manifest.depsDir || '.opensdd.deps';
   const specsDirPath = path.join(cwd, specsDir);
   const depsDirPath = path.join(cwd, depsDir);
 

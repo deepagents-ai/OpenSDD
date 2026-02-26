@@ -64,7 +64,7 @@ export async function updateApplyCommand(name) {
   if (pendingNames.length === 1) {
     const updateManifestPath = path.join(updatesDir, pendingNames[0], 'manifest.json');
     const updateManifest = JSON.parse(fs.readFileSync(updateManifestPath, 'utf-8'));
-    confirmMsg = `Apply update for ${pendingNames[0]} v${updateManifest.previous_version} -> v${updateManifest.version}? (y/n) `;
+    confirmMsg = `Apply update for ${pendingNames[0]} v${updateManifest.previousVersion} -> v${updateManifest.version}? (y/n) `;
   } else {
     confirmMsg = `Apply ${pendingNames.length} pending updates? (y/n) `;
   }
@@ -103,13 +103,13 @@ export async function updateApplyCommand(name) {
       ...existing,
       version: updateManifest.version,
       source: updateManifest.source,
-      spec_format: updateManifest.spec_format,
+      specFormat: updateManifest.specFormat,
       // Preserve consumer-managed fields
       implementation:
         existing.implementation !== undefined ? existing.implementation : null,
       tests: existing.tests !== undefined ? existing.tests : null,
-      has_deviations:
-        existing.has_deviations !== undefined ? existing.has_deviations : false,
+      hasDeviations:
+        existing.hasDeviations !== undefined ? existing.hasDeviations : false,
     };
 
     // Delete staging directory
@@ -117,7 +117,7 @@ export async function updateApplyCommand(name) {
 
     applied.push({
       name: specName,
-      oldVersion: updateManifest.previous_version,
+      oldVersion: updateManifest.previousVersion,
       newVersion: updateManifest.version,
     });
   }

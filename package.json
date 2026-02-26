@@ -15,7 +15,7 @@
     "node": ">=18.0.0"
   },
   "scripts": {
-    "test": "node --test test/**/*.test.js"
+    "test": "echo '\\n========== TESTS BEGIN ==========\\n' && node --test test/**/*.test.js; EXIT=$?; echo '\\n========== TESTS END ==========\\n'; exit $EXIT"
   },
   "keywords": [
     "opensdd",

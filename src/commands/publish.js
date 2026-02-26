@@ -65,16 +65,16 @@ export async function publishCommand(options) {
   if (!manifest.publish) {
     console.error('Error: No `publish` section in opensdd.json.');
     console.error(
-      'Add a `publish` object with name, version, description, and spec_format to publish your spec.'
+      'Add a `publish` object with name, version, description, and specFormat to publish your spec.'
     );
     process.exit(1);
   }
 
-  const { name, version, description, spec_format, dependencies } = manifest.publish;
+  const { name, version, description, specFormat, dependencies } = manifest.publish;
 
-  if (!name || !version || !description || !spec_format) {
+  if (!name || !version || !description || !specFormat) {
     console.error(
-      'Error: `publish` section must include name, version, description, and spec_format.'
+      'Error: `publish` section must include name, version, description, and specFormat.'
     );
     process.exit(1);
   }
@@ -169,7 +169,7 @@ export async function publishCommand(options) {
     const publishManifest = {
       name,
       version,
-      spec_format,
+      specFormat,
       description,
       dependencies: dependencies || [],
     };
@@ -192,7 +192,7 @@ export async function publishCommand(options) {
       indexData = { name, description, latest: version, versions: {} };
     }
     indexData.latest = version;
-    indexData.versions[version] = { spec_format };
+    indexData.versions[version] = { specFormat };
     fs.writeFileSync(indexPath, JSON.stringify(indexData, null, 2) + '\n');
     console.log(`  Updated index.json        latest: ${version}`);
 

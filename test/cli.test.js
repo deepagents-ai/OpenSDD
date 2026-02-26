@@ -48,7 +48,7 @@ function setupTestRegistry() {
     JSON.stringify({
       name: 'slugify',
       version: '1.0.0',
-      spec_format: '0.1.0',
+      specFormat: '0.1.0',
       description: 'String to URL-friendly slug',
       dependencies: [],
     })
@@ -66,7 +66,7 @@ function setupTestRegistry() {
     JSON.stringify({
       name: 'slugify',
       version: '1.1.0',
-      spec_format: '0.1.0',
+      specFormat: '0.1.0',
       description: 'String to URL-friendly slug',
       dependencies: [],
     })
@@ -84,8 +84,8 @@ function setupTestRegistry() {
       description: 'String to URL-friendly slug',
       latest: '1.1.0',
       versions: {
-        '1.0.0': { spec_format: '0.1.0' },
-        '1.1.0': { spec_format: '0.1.0' },
+        '1.0.0': { specFormat: '0.1.0' },
+        '1.1.0': { specFormat: '0.1.0' },
       },
     })
   );
@@ -98,7 +98,7 @@ function setupTestRegistry() {
     JSON.stringify({
       name: 'with-deps',
       version: '1.0.0',
-      spec_format: '0.1.0',
+      specFormat: '0.1.0',
       description: 'Spec with dependencies',
       dependencies: ['slugify', 'missing-dep'],
     })
@@ -113,7 +113,7 @@ function setupTestRegistry() {
       name: 'with-deps',
       description: 'Spec with dependencies',
       latest: '1.0.0',
-      versions: { '1.0.0': { spec_format: '0.1.0' } },
+      versions: { '1.0.0': { specFormat: '0.1.0' } },
     })
   );
 }
@@ -188,8 +188,8 @@ describe('opensdd CLI', () => {
         fs.readFileSync(path.join(TEST_PROJECT, 'opensdd.json'), 'utf-8')
       );
       assert.equal(manifest.opensdd, '0.1.0');
-      assert.equal(manifest.specs_dir, 'opensdd');
-      assert.equal(manifest.deps_dir, '.opensdd.deps');
+      assert.equal(manifest.specsDir, 'opensdd');
+      assert.equal(manifest.depsDir, '.opensdd.deps');
 
       // Verify SKILL.md files contain Agent Skills frontmatter
       const claudeManagerSkill = fs.readFileSync(
@@ -310,7 +310,7 @@ describe('opensdd CLI', () => {
       assert.equal(manifest.dependencies.slugify.version, '1.1.0');
       assert.equal(manifest.dependencies.slugify.implementation, null);
       assert.equal(manifest.dependencies.slugify.tests, null);
-      assert.equal(manifest.dependencies.slugify.has_deviations, false);
+      assert.equal(manifest.dependencies.slugify.hasDeviations, false);
     });
 
     it('should install a spec at a specific version', () => {
@@ -495,7 +495,7 @@ describe('opensdd CLI', () => {
       const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
       manifest.dependencies.slugify.implementation = 'src/slugify.js';
       manifest.dependencies.slugify.tests = 'test/slugify.test.js';
-      manifest.dependencies.slugify.has_deviations = true;
+      manifest.dependencies.slugify.hasDeviations = true;
       fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
 
       execSync(`echo "y" | node ${CLI} update apply slugify`, {
@@ -507,7 +507,7 @@ describe('opensdd CLI', () => {
       assert.equal(updated.dependencies.slugify.version, '1.1.0');
       assert.equal(updated.dependencies.slugify.implementation, 'src/slugify.js');
       assert.equal(updated.dependencies.slugify.tests, 'test/slugify.test.js');
-      assert.equal(updated.dependencies.slugify.has_deviations, true);
+      assert.equal(updated.dependencies.slugify.hasDeviations, true);
     });
 
     it('should handle no pending updates', () => {
@@ -557,7 +557,7 @@ describe('opensdd CLI', () => {
         name: 'my-spec',
         version: '1.0.0',
         description: 'My test spec',
-        spec_format: '0.1.0',
+        specFormat: '0.1.0',
       };
       fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
 
@@ -662,7 +662,7 @@ describe('opensdd CLI', () => {
         JSON.stringify({
           name: 'test',
           version: '1.0.0',
-          spec_format: '0.1.0',
+          specFormat: '0.1.0',
         })
       );
       const output = run('validate with-manifest');

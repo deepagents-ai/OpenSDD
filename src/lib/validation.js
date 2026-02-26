@@ -105,9 +105,9 @@ function validateManifest(manifest, result) {
     result.errors.push('manifest.json: Missing name');
   }
 
-  if (!manifest.spec_format) {
-    result.manifestErrors.push('Missing required field: spec_format');
-    result.errors.push('manifest.json: Missing spec_format');
+  if (!manifest.specFormat) {
+    result.manifestErrors.push('Missing required field: specFormat');
+    result.errors.push('manifest.json: Missing specFormat');
   }
 
   if (!manifest.version) {

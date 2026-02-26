@@ -30,9 +30,9 @@ export function writeManifest(manifestPath, data) {
 }
 
 export function getSpecsDir(manifest) {
-  return manifest.specs_dir || 'opensdd';
+  return manifest.specsDir || 'opensdd';
 }
 
 export function getDepsDir(manifest) {
-  return manifest.deps_dir || '.opensdd.deps';
+  return manifest.depsDir || '.opensdd.deps';
 }
