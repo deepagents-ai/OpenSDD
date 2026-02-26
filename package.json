@@ -1,7 +1,7 @@
 {
   "name": "opensdd",
   "version": "0.1.0",
-  "description": "A thin Node.js command-line tool that installs, updates, publishes, and manages OpenSDD specs",
+  "description": "The official OpenSDD (Open Spec-Driven Development) CLI, spec, and spec registry",
   "type": "module",
   "bin": {
     "opensdd": "./bin/opensdd.js"
