@@ -35,9 +35,14 @@ coverage/
 # Logs
 logs/
 *.log
-.claude
 .env
 remote/deploy-tool/.env
+
+# Agents
+.agents
+.claude
+.cursor
+.github/instructions
 
 # Python
 .venv/
