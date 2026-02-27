@@ -146,8 +146,8 @@ describe('opensdd CLI', () => {
       setupTestProject();
     });
 
-    it('should initialize a fresh project', () => {
-      const output = run('init');
+    it('should initialize a fresh project (OpenSDD-driven)', () => {
+      const output = run('init', TEST_PROJECT, { input: '2\n' });
       assert.match(output, /Initialized OpenSDD/);
       assert.match(output, /installed \(6 agent formats\)/);
       assert.match(output, /opensdd\.json\s+created/);
@@ -218,7 +218,7 @@ describe('opensdd CLI', () => {
     });
 
     it('should infer project name from package.json', () => {
-      run('init');
+      run('init', TEST_PROJECT, { input: '2\n' });
       const spec = fs.readFileSync(
         path.join(TEST_PROJECT, 'opensdd', 'spec.md'),
         'utf-8'
@@ -227,7 +227,7 @@ describe('opensdd CLI', () => {
     });
 
     it('should preserve opensdd.json on re-init', () => {
-      run('init');
+      run('init', TEST_PROJECT, { input: '2\n' });
 
       // Modify opensdd.json
       const manifestPath = path.join(TEST_PROJECT, 'opensdd.json');
@@ -235,7 +235,7 @@ describe('opensdd CLI', () => {
       manifest.registry = 'https://github.com/custom/registry';
       fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
 
-      // Re-init
+      // Re-init (manifest has specsDir, no prompt needed)
       const output = run('init');
       assert.match(output, /opensdd\.json\s+already exists \(preserved\)/);
       assert.match(output, /updated \(6 agent formats\)/);
@@ -250,7 +250,7 @@ describe('opensdd CLI', () => {
         path.join(TEST_PROJECT, 'GEMINI.md'),
         '# My Custom Instructions\n\nDo things.\n'
       );
-      run('init');
+      run('init', TEST_PROJECT, { input: '2\n' });
 
       const gemini = fs.readFileSync(
         path.join(TEST_PROJECT, 'GEMINI.md'),
@@ -270,6 +270,115 @@ describe('opensdd CLI', () => {
       assert.match(result.stderr, /malformed JSON/i);
       assert.equal(result.exitCode, 1);
     });
+
+    it('should initialize as consumer-only', () => {
+      const output = run('init', TEST_PROJECT, { input: '1\n' });
+      assert.match(output, /Initialized OpenSDD \(consumer\)/);
+      assert.match(output, /sdd-manager/);
+
+      // Verify no specsDir in manifest
+      const manifest = JSON.parse(
+        fs.readFileSync(path.join(TEST_PROJECT, 'opensdd.json'), 'utf-8')
+      );
+      assert.equal(manifest.opensdd, '0.1.0');
+      assert.equal(manifest.specsDir, undefined);
+      assert.equal(manifest.depsDir, '.opensdd.deps');
+
+      // Verify no opensdd/ dir or spec.md
+      assert.ok(!fs.existsSync(path.join(TEST_PROJECT, 'opensdd', 'spec.md')));
+
+      // Verify no sdd-generate skill files
+      assert.ok(
+        !fs.existsSync(
+          path.join(TEST_PROJECT, '.claude', 'skills', 'sdd-generate', 'SKILL.md')
+        )
+      );
+      assert.ok(
+        !fs.existsSync(
+          path.join(TEST_PROJECT, '.agents', 'skills', 'sdd-generate', 'SKILL.md')
+        )
+      );
+      assert.ok(
+        !fs.existsSync(path.join(TEST_PROJECT, '.cursor', 'rules', 'sdd-generate.md'))
+      );
+
+      // Verify sdd-manager IS installed
+      assert.ok(
+        fs.existsSync(
+          path.join(TEST_PROJECT, '.claude', 'skills', 'sdd-manager', 'SKILL.md')
+        )
+      );
+      assert.ok(fs.existsSync(path.join(TEST_PROJECT, '.opensdd.deps')));
+    });
+
+    it('should upgrade consumer to OpenSDD-driven', () => {
+      // First init as consumer
+      run('init', TEST_PROJECT, { input: '1\n' });
+
+      // Re-init and accept upgrade
+      const output = run('init', TEST_PROJECT, { input: 'y\n' });
+      assert.match(output, /Initialized OpenSDD:/);
+      assert.match(output, /sdd-generate/);
+
+      // Verify specsDir added to manifest
+      const manifest = JSON.parse(
+        fs.readFileSync(path.join(TEST_PROJECT, 'opensdd.json'), 'utf-8')
+      );
+      assert.equal(manifest.specsDir, 'opensdd');
+
+      // Verify specs dir and spec.md created
+      assert.ok(fs.existsSync(path.join(TEST_PROJECT, 'opensdd', 'spec.md')));
+
+      // Verify sdd-generate installed
+      assert.ok(
+        fs.existsSync(
+          path.join(TEST_PROJECT, '.claude', 'skills', 'sdd-generate', 'SKILL.md')
+        )
+      );
+    });
+
+    it('should decline consumer upgrade', () => {
+      // First init as consumer
+      run('init', TEST_PROJECT, { input: '1\n' });
+
+      // Re-init and decline upgrade
+      const output = run('init', TEST_PROJECT, { input: 'n\n' });
+      assert.match(output, /Initialized OpenSDD \(consumer\)/);
+
+      // Verify still consumer
+      const manifest = JSON.parse(
+        fs.readFileSync(path.join(TEST_PROJECT, 'opensdd.json'), 'utf-8')
+      );
+      assert.equal(manifest.specsDir, undefined);
+
+      // Verify no sdd-generate
+      assert.ok(
+        !fs.existsSync(
+          path.join(TEST_PROJECT, '.claude', 'skills', 'sdd-generate', 'SKILL.md')
+        )
+      );
+    });
+
+    it('should auto-bootstrap on install without init', () => {
+      // No init — just install directly
+      const output = run(`install slugify --registry ${TEST_REGISTRY}`);
+      assert.match(output, /Auto-initialized OpenSDD \(consumer\)/);
+      assert.match(output, /Installed slugify/);
+
+      // Verify consumer manifest
+      const manifest = JSON.parse(
+        fs.readFileSync(path.join(TEST_PROJECT, 'opensdd.json'), 'utf-8')
+      );
+      assert.equal(manifest.specsDir, undefined);
+      assert.ok(manifest.dependencies.slugify);
+
+      // Verify sdd-manager installed
+      assert.ok(
+        fs.existsSync(
+          path.join(TEST_PROJECT, '.claude', 'skills', 'sdd-manager', 'SKILL.md')
+        )
+      );
+    });
   });
 
   describe('list', () => {
@@ -284,7 +393,7 @@ describe('opensdd CLI', () => {
   describe('install', () => {
     beforeEach(() => {
       setupTestProject();
-      run('init');
+      run('init', TEST_PROJECT, { input: '2\n' });
     });
 
     it('should install a spec at latest version', () => {
@@ -368,21 +477,27 @@ describe('opensdd CLI', () => {
       assert.match(output, /Installed slugify/);
     });
 
-    it('should error when opensdd not initialized', () => {
+    it('should auto-bootstrap when opensdd not initialized', () => {
       fs.rmSync(path.join(TEST_PROJECT, 'opensdd.json'));
-      const result = run(
-        `install slugify --registry ${TEST_REGISTRY}`,
-        TEST_PROJECT,
-        { expectError: true }
+      const output = run(`install slugify --registry ${TEST_REGISTRY}`);
+      assert.match(output, /Auto-initialized OpenSDD \(consumer\)/);
+      assert.match(output, /Installed slugify/);
+
+      // Verify consumer opensdd.json created
+      const manifest = JSON.parse(
+        fs.readFileSync(path.join(TEST_PROJECT, 'opensdd.json'), 'utf-8')
       );
-      assert.match(result.stderr, /not initialized/);
+      assert.equal(manifest.opensdd, '0.1.0');
+      assert.equal(manifest.specsDir, undefined);
+      assert.equal(manifest.depsDir, '.opensdd.deps');
+      assert.ok(manifest.dependencies.slugify);
     });
   });
 
   describe('update', () => {
     beforeEach(() => {
       setupTestProject();
-      run('init');
+      run('init', TEST_PROJECT, { input: '2\n' });
       run(`install slugify 1.0.0 --registry ${TEST_REGISTRY}`);
     });
 
@@ -463,7 +578,7 @@ describe('opensdd CLI', () => {
   describe('update apply', () => {
     beforeEach(() => {
       setupTestProject();
-      run('init');
+      run('init', TEST_PROJECT, { input: '2\n' });
       run(`install slugify 1.0.0 --registry ${TEST_REGISTRY}`);
       run(`update slugify --registry ${TEST_REGISTRY}`);
     });
@@ -534,7 +649,7 @@ describe('opensdd CLI', () => {
   describe('status', () => {
     beforeEach(() => {
       setupTestProject();
-      run('init');
+      run('init', TEST_PROJECT, { input: '2\n' });
     });
 
     it('should show no specs when none installed', () => {
@@ -587,7 +702,7 @@ describe('opensdd CLI', () => {
   describe('validate', () => {
     beforeEach(() => {
       setupTestProject();
-      run('init');
+      run('init', TEST_PROJECT, { input: '2\n' });
     });
 
     it('should validate a valid spec', () => {

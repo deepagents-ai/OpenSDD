@@ -29,6 +29,10 @@ export function writeManifest(manifestPath, data) {
   fs.writeFileSync(manifestPath, JSON.stringify(data, null, 2) + '\n');
 }
 
+export function isConsumerOnly(manifest) {
+  return !manifest.specsDir;
+}
+
 export function getSpecsDir(manifest) {
   return manifest.specsDir || 'opensdd';
 }

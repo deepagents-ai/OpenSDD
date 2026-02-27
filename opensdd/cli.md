@@ -24,41 +24,68 @@ Prints usage information including the current version, available commands, and 
 
 ### `opensdd init`
 
-Initializes the OpenSDD protocol in the current project.
+Initializes the OpenSDD protocol in the current project. Supports two modes:
+
+- **Consumer-only**: Install and implement dependency specs. Minimal footprint — only `sdd-manager` skill installed, no specs directory or skeleton `spec.md`.
+- **OpenSDD-driven**: Full SDD methodology adoption. Both skills installed, specs directory and skeleton `spec.md` created.
+
+Mode detection: presence of `specsDir` in `opensdd.json` = OpenSDD-driven. Absence = consumer-only.
 
 #### Behavior
 
 1. Verify the current directory is a project root (contains `package.json`, `pyproject.toml`, `Cargo.toml`, `go.mod`, `.git`, `opensdd.json`, or similar project markers). If no project marker is found, warn the user and ask for confirmation to proceed.
-2. Install both skills (sdd-manager and sdd-generate) into all supported agent configuration directories. If already present, overwrite — skills are always spec-owned. The full installation mapping is defined in the **Skill Installation Mapping** section below.
-3. If `opensdd.json` does not exist at the project root, create it with default contents: `{ "opensdd": "0.1.0", "specsDir": "opensdd", "depsDir": ".opensdd.deps" }`. The `registry`, `publish`, and `dependencies` fields are intentionally omitted from the default — they are optional. When `registry` is absent, the CLI defaults to `https://github.com/deepagents-ai/opensdd` per the registry source resolution logic. If `opensdd.json` already exists, leave it untouched.
-4. Create the `opensdd/` directory (or the directory specified by `specsDir` in an existing `opensdd.json`) if it does not exist.
-5. If `<specsDir>/spec.md` does not exist, create a skeleton `spec.md` with placeholder sections:
-   ```markdown
-   # {project-name}
+2. Read existing `opensdd.json` if present.
+3. Determine mode:
+   - **Existing manifest with `specsDir`** (OpenSDD-driven re-init): `mode = 'full'`. No prompt.
+   - **Existing manifest without `specsDir`** (consumer re-init): prompt "Upgrade to OpenSDD-driven? (y/n)". If yes, add `specsDir` to manifest and `mode = 'full'`. If no, `mode = 'consumer'`.
+   - **No manifest** (fresh init): prompt "How will this project use OpenSDD?" with numbered choices:
+     1. Consumer only — install and implement dependency specs
+     2. OpenSDD-driven — full SDD methodology (author specs, both skills)
+   Create manifest accordingly.
+4. Install skills with the determined mode. In consumer mode, only `sdd-manager` is installed. In full mode, both `sdd-manager` and `sdd-generate` are installed. The full installation mapping is defined in the **Skill Installation Mapping** section below. If already present, overwrite — skills are always spec-owned.
+5. Create the `.opensdd.deps/` directory (or the directory specified by `depsDir` in an existing `opensdd.json`) if it does not exist. (Both modes.)
+6. If `mode === 'full'`:
+   a. If `opensdd.json` does not exist at the project root, create it with default contents: `{ "opensdd": "0.1.0", "specsDir": "opensdd", "depsDir": ".opensdd.deps" }`. The `registry`, `publish`, and `dependencies` fields are intentionally omitted from the default — they are optional. When `registry` is absent, the CLI defaults to `https://github.com/deepagents-ai/opensdd` per the registry source resolution logic. If `opensdd.json` already exists, leave it untouched.
+   b. Create the `opensdd/` directory (or the directory specified by `specsDir` in the `opensdd.json`) if it does not exist.
+   c. If `<specsDir>/spec.md` does not exist, create a skeleton `spec.md` with placeholder sections:
+      ```markdown
+      # {project-name}
 
-   > TODO: One-line description of what this software does.
+      > TODO: One-line description of what this software does.
 
-   ## Behavioral Contract
+      ## Behavioral Contract
 
-   <!-- Define behaviors here. -->
+      <!-- Define behaviors here. -->
 
-   ## NOT Specified (Implementation Freedom)
+      ## NOT Specified (Implementation Freedom)
 
-   <!-- List aspects left to the implementer's discretion. -->
+      <!-- List aspects left to the implementer's discretion. -->
 
-   ## Invariants
+      ## Invariants
 
-   <!-- List properties that must hold true across all inputs and states. -->
-   ```
-   The `{project-name}` placeholder SHOULD be inferred from the nearest project manifest (e.g., `name` in `package.json`) or default to the directory name. If `spec.md` already exists, leave it untouched.
-6. Create the `.opensdd.deps/` directory (or the directory specified by `depsDir` in an existing `opensdd.json`) if it does not exist.
-7. Print a success message.
+      <!-- List properties that must hold true across all inputs and states. -->
+      ```
+      The `{project-name}` placeholder SHOULD be inferred from the nearest project manifest (e.g., `name` in `package.json`) or default to the directory name. If `spec.md` already exists, leave it untouched.
+7. If `mode === 'consumer'`: create `opensdd.json` with consumer-only contents: `{ "opensdd": "0.1.0", "depsDir": ".opensdd.deps" }` (no `specsDir`). If `opensdd.json` already exists, leave it untouched.
+8. Print a success message.
 
-- `opensdd init` in a fresh project MUST produce the output below
-- `opensdd init` in a project that already has OpenSDD initialized MUST overwrite all skill installation files across all agent formats but MUST NOT overwrite `opensdd.json`
+- `opensdd init` selecting OpenSDD-driven in a fresh project MUST produce the full output below
+- `opensdd init` selecting consumer-only in a fresh project MUST produce the consumer output below
+- `opensdd init` in a project that already has OpenSDD initialized (with `specsDir`) MUST overwrite all skill installation files across all agent formats but MUST NOT overwrite `opensdd.json`
+- `opensdd init` in a consumer project MUST prompt to upgrade to OpenSDD-driven
 
 #### Output
 
+Consumer-only (fresh):
+```
+Initialized OpenSDD (consumer):
+  Skills installed for: Claude Code, Codex CLI, Cursor, GitHub Copilot, Gemini CLI, Amp
+    sdd-manager              installed (6 agent formats)
+  opensdd.json               created
+  .opensdd.deps/             created
+```
+
+OpenSDD-driven (fresh):
 ```
 Initialized OpenSDD:
   Skills installed for: Claude Code, Codex CLI, Cursor, GitHub Copilot, Gemini CLI, Amp
@@ -70,7 +97,7 @@ Initialized OpenSDD:
   .opensdd.deps/             created
 ```
 
-If already initialized:
+OpenSDD-driven (re-init):
 ```
 Initialized OpenSDD:
   Skills installed for: Claude Code, Codex CLI, Cursor, GitHub Copilot, Gemini CLI, Amp
@@ -89,7 +116,7 @@ Initialized OpenSDD:
 
 ### Skill Installation Mapping
 
-`opensdd init` installs both skills (sdd-manager and sdd-generate) into the native configuration format of each supported coding agent. The canonical skill content is authored as markdown source files in `opensdd/skills/` (`skills/sdd-manager.md`, `skills/sdd-generate.md`) and `opensdd/` (`spec-format.md`). Source skill files use Agent Skills frontmatter (`name`, `description`) which the CLI parses and transforms per-agent format during installation.
+`opensdd init` installs skills into the native configuration format of each supported coding agent. In **consumer mode**, only `sdd-manager` is installed. In **full (OpenSDD-driven) mode**, both `sdd-manager` and `sdd-generate` are installed. The canonical skill content is authored as markdown source files in `opensdd/skills/` (`skills/sdd-manager.md`, `skills/sdd-generate.md`) and `opensdd/` (`spec-format.md`). Source skill files use Agent Skills frontmatter (`name`, `description`) which the CLI parses and transforms per-agent format during installation.
 
 All installed skill files are **spec-owned** — they are overwritten on every `opensdd init` and MUST NOT be edited by the user.
 
@@ -269,7 +296,7 @@ Fetches a spec from the registry and installs it as a dependency.
 
 #### Behavior
 
-1. Verify `opensdd.json` exists at the project root. If not, print a message suggesting `opensdd init` first and exit with code 1.
+1. Verify `opensdd.json` exists at the project root. If not, auto-bootstrap as a consumer project: create a minimal `opensdd.json` (no `specsDir`), install consumer-mode skills, create the `.opensdd.deps/` directory, print "Auto-initialized OpenSDD (consumer).", and continue with the normal install flow.
 2. Check if the spec `<name>` already exists as a key in `opensdd.json`'s `dependencies` object. If it does AND the spec directory exists in `<depsDir>`, print a message indicating the spec is already installed and suggest `opensdd update` instead. Exit with code 1. If the entry exists BUT the spec directory is missing, treat as a re-install: log a message noting the stale entry, then continue to step 4 using the version from the existing entry (unless `[version]` is explicitly provided, in which case use that).
 3. Validate the spec name (lowercase alphanumeric and hyphens only).
 4. Fetch `index.json` from `registry/<name>/` in the configured registry source. If `[version]` is provided, use that version; otherwise use `latest` from `index.json`.
@@ -300,7 +327,6 @@ Run "implement the slugify spec" in your agent to generate an implementation.
 - Spec not found in registry: print error listing available specs and exit with code 1.
 - Requested version not found: print error listing available versions and exit with code 1.
 - Spec already installed (entry and directory both exist): print message suggesting `opensdd update` and exit with code 1.
-- OpenSDD not initialized: print message suggesting `opensdd init` and exit with code 1.
 
 ### `opensdd update [name]`
 
@@ -620,7 +646,9 @@ The CLI reads the existing `opensdd.json` dependency entry, applies updated meta
 - Running `opensdd update` when a pending update already exists for the spec: overwrite the existing staged update with the new one.
 - Running `opensdd update apply` when no pending updates exist: print "No pending updates." and exit with code 0 (not an error).
 - Running `opensdd update apply <name>` when the agent hasn't finished processing the changeset: the CLI has no way to verify this — it's the user's responsibility to confirm the migration is complete before applying.
-- Running `opensdd init` in a project that already has OpenSDD initialized: overwrite all skill installation files across all agent formats, leave `opensdd.json` untouched.
+- Running `opensdd init` in a project that already has OpenSDD initialized (with `specsDir`): overwrite all skill installation files across all agent formats, leave `opensdd.json` untouched.
+- Running `opensdd init` in a consumer-only project: prompt to upgrade to OpenSDD-driven. If declined, re-install consumer skills only.
+- Running `opensdd install` in an uninitialized project: auto-bootstrap as consumer, then continue with install.
 - Running any command outside a project directory (no project markers found): warn but allow with confirmation, except `opensdd list` and `opensdd validate` which work anywhere.
 - Spec name contains characters invalid for directory names: reject with an error listing allowed characters (lowercase alphanumeric and hyphens).
 - Publishing a version that already exists in the registry: reject with an error suggesting a version bump.

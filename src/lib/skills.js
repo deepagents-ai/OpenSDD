@@ -89,9 +89,10 @@ function updateManagedSection(filePath, sectionBody) {
  * Returns an array of warnings for non-critical failures.
  * Throws on critical failures (e.g., Claude Code installation fails).
  */
-export function installSkills(projectRoot) {
+export function installSkills(projectRoot, { mode = 'full' } = {}) {
   const skills = getSkillContent();
   const warnings = [];
+  const isFull = mode === 'full';
 
   // 1. Claude Code (critical — Gemini and Amp depend on this)
   const claudeBase = path.join(projectRoot, '.claude', 'skills');
@@ -103,14 +104,16 @@ export function installSkills(projectRoot) {
     path.join(claudeBase, 'sdd-manager', 'references', 'spec-format.md'),
     skills.specFormat
   );
-  writeFileSync(
-    path.join(claudeBase, 'sdd-generate', 'SKILL.md'),
-    skills.sddGenerate
-  );
-  writeFileSync(
-    path.join(claudeBase, 'sdd-generate', 'references', 'spec-format.md'),
-    skills.specFormat
-  );
+  if (isFull) {
+    writeFileSync(
+      path.join(claudeBase, 'sdd-generate', 'SKILL.md'),
+      skills.sddGenerate
+    );
+    writeFileSync(
+      path.join(claudeBase, 'sdd-generate', 'references', 'spec-format.md'),
+      skills.specFormat
+    );
+  }
 
   // 2. Codex CLI
   try {
@@ -123,14 +126,16 @@ export function installSkills(projectRoot) {
       path.join(codexBase, 'sdd-manager', 'references', 'spec-format.md'),
       skills.specFormat
     );
-    writeFileSync(
-      path.join(codexBase, 'sdd-generate', 'SKILL.md'),
-      skills.sddGenerate
-    );
-    writeFileSync(
-      path.join(codexBase, 'sdd-generate', 'references', 'spec-format.md'),
-      skills.specFormat
-    );
+    if (isFull) {
+      writeFileSync(
+        path.join(codexBase, 'sdd-generate', 'SKILL.md'),
+        skills.sddGenerate
+      );
+      writeFileSync(
+        path.join(codexBase, 'sdd-generate', 'references', 'spec-format.md'),
+        skills.specFormat
+      );
+    }
   } catch (err) {
     warnings.push(`Could not install Codex CLI skills: ${err.message}`);
   }
@@ -141,7 +146,6 @@ export function installSkills(projectRoot) {
     ensureDir(cursorBase);
 
     const { frontmatter: managerFm, body: managerBody } = parseFrontmatter(skills.sddManager);
-    const { frontmatter: generateFm, body: generateBody } = parseFrontmatter(skills.sddGenerate);
 
     const sddManagerCursor = `---
 description: "${managerFm.description}"
@@ -149,13 +153,6 @@ alwaysApply: false
 ---
 
 ${managerBody}`;
-
-    const sddGenerateCursor = `---
-description: "${generateFm.description}"
-alwaysApply: false
----
-
-${generateBody}`;
 
     const specFormatCursor = `---
 description: "OpenSDD spec format reference. Defines the structure and rules for behavioral specifications. Referenced by sdd-manager and sdd-generate skills."
@@ -165,8 +162,20 @@ alwaysApply: false
 ${skills.specFormat}`;
 
     writeFileSync(path.join(cursorBase, 'sdd-manager.md'), sddManagerCursor);
-    writeFileSync(path.join(cursorBase, 'sdd-generate.md'), sddGenerateCursor);
     writeFileSync(path.join(cursorBase, 'opensdd-spec-format.md'), specFormatCursor);
+
+    if (isFull) {
+      const { frontmatter: generateFm, body: generateBody } = parseFrontmatter(skills.sddGenerate);
+
+      const sddGenerateCursor = `---
+description: "${generateFm.description}"
+alwaysApply: false
+---
+
+${generateBody}`;
+
+      writeFileSync(path.join(cursorBase, 'sdd-generate.md'), sddGenerateCursor);
+    }
   } catch (err) {
     warnings.push(`Could not install Cursor skills: ${err.message}`);
   }
@@ -177,20 +186,24 @@ ${skills.specFormat}`;
     ensureDir(copilotBase);
 
     const { frontmatter: managerFmCp, body: managerBodyCp } = parseFrontmatter(skills.sddManager);
-    const { frontmatter: generateFmCp, body: generateBodyCp } = parseFrontmatter(skills.sddGenerate);
 
     writeFileSync(
       path.join(copilotBase, 'sdd-manager.instructions.md'),
       `---\napplyTo: "**"\ndescription: "${managerFmCp.description}"\n---\n\n${managerBodyCp}`
     );
     writeFileSync(
-      path.join(copilotBase, 'sdd-generate.instructions.md'),
-      `---\napplyTo: "**"\ndescription: "${generateFmCp.description}"\n---\n\n${generateBodyCp}`
-    );
-    writeFileSync(
       path.join(copilotBase, 'opensdd-spec-format.instructions.md'),
       `---\napplyTo: "**"\ndescription: "OpenSDD spec format reference. Defines the structure and rules for behavioral specifications. Referenced by sdd-manager and sdd-generate skills."\n---\n\n${skills.specFormat}`
     );
+
+    if (isFull) {
+      const { frontmatter: generateFmCp, body: generateBodyCp } = parseFrontmatter(skills.sddGenerate);
+
+      writeFileSync(
+        path.join(copilotBase, 'sdd-generate.instructions.md'),
+        `---\napplyTo: "**"\ndescription: "${generateFmCp.description}"\n---\n\n${generateBodyCp}`
+      );
+    }
   } catch (err) {
     warnings.push(`Could not install GitHub Copilot skills: ${err.message}`);
   }
@@ -198,10 +211,12 @@ ${skills.specFormat}`;
   // 5. Gemini CLI
   try {
     const geminiPath = path.join(projectRoot, 'GEMINI.md');
-    const geminiBody = `@.claude/skills/sdd-manager/SKILL.md
-@.claude/skills/sdd-manager/references/spec-format.md
-@.claude/skills/sdd-generate/SKILL.md
+    let geminiBody = `@.claude/skills/sdd-manager/SKILL.md
+@.claude/skills/sdd-manager/references/spec-format.md`;
+    if (isFull) {
+      geminiBody += `\n@.claude/skills/sdd-generate/SKILL.md
 @.claude/skills/sdd-generate/references/spec-format.md`;
+    }
     updateManagedSection(geminiPath, geminiBody);
   } catch (err) {
     warnings.push(`Could not install Gemini CLI skills: ${err.message}`);
@@ -210,10 +225,12 @@ ${skills.specFormat}`;
   // 6. Amp
   try {
     const ampPath = path.join(projectRoot, 'AGENTS.md');
-    const ampBody = `@.claude/skills/sdd-manager/SKILL.md
-@.claude/skills/sdd-manager/references/spec-format.md
-@.claude/skills/sdd-generate/SKILL.md
+    let ampBody = `@.claude/skills/sdd-manager/SKILL.md
+@.claude/skills/sdd-manager/references/spec-format.md`;
+    if (isFull) {
+      ampBody += `\n@.claude/skills/sdd-generate/SKILL.md
 @.claude/skills/sdd-generate/references/spec-format.md`;
+    }
     updateManagedSection(ampPath, ampBody);
   } catch (err) {
     warnings.push(`Could not install Amp skills: ${err.message}`);

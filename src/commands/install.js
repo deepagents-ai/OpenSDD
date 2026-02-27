@@ -13,17 +13,26 @@ import {
   fetchSpecFiles,
   listRegistrySpecs,
 } from '../lib/registry.js';
+import { installSkills } from '../lib/skills.js';
 
 function isValidSpecName(name) {
   return /^[a-z0-9]+(-[a-z0-9]+)*$/.test(name);
 }
 
 export async function installCommand(name, version, options) {
-  // Step 1: Verify opensdd.json exists
-  const manifestPath = findManifestPath(process.cwd());
+  // Step 1: Verify opensdd.json exists, auto-bootstrap if not
+  let manifestPath = findManifestPath(process.cwd());
   if (!manifestPath) {
-    console.error('Error: OpenSDD not initialized. Run `opensdd init` to get started.');
-    process.exit(1);
+    const cwd = process.cwd();
+    manifestPath = path.join(cwd, 'opensdd.json');
+    const consumerManifest = {
+      opensdd: '0.1.0',
+      depsDir: '.opensdd.deps',
+    };
+    fs.writeFileSync(manifestPath, JSON.stringify(consumerManifest, null, 2) + '\n');
+    installSkills(cwd, { mode: 'consumer' });
+    fs.mkdirSync(path.join(cwd, '.opensdd.deps'), { recursive: true });
+    console.log('Auto-initialized OpenSDD (consumer).');
   }
 
   const manifest = readManifest(manifestPath);

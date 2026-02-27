@@ -75,6 +75,18 @@ function promptYN(question) {
   });
 }
 
+function promptChoice(question, choices) {
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  return new Promise((resolve) => {
+    const lines = choices.map((c, i) => `  ${i + 1}. ${c}`).join('\n');
+    rl.question(`${question}\n${lines}\nChoice: `, (answer) => {
+      rl.close();
+      const idx = parseInt(answer, 10);
+      resolve(idx >= 1 && idx <= choices.length ? idx : null);
+    });
+  });
+}
+
 export async function initCommand() {
   const cwd = process.cwd();
 
@@ -88,23 +100,9 @@ export async function initCommand() {
     }
   }
 
-  // Step 2: Install skills to all agent formats
-  let warnings;
-  try {
-    warnings = installSkills(cwd);
-  } catch (err) {
-    console.error(`Error: Could not install skills: ${err.message}`);
-    process.exit(1);
-  }
-
-  for (const w of warnings) {
-    console.warn(`Warning: ${w}`);
-  }
-
-  // Step 3: Read or create opensdd.json
+  // Step 2: Read existing opensdd.json if present
   const manifestPath = path.join(cwd, 'opensdd.json');
   let manifest = null;
-  let manifestCreated = false;
 
   if (fs.existsSync(manifestPath)) {
     try {
@@ -115,31 +113,84 @@ export async function initCommand() {
     }
   }
 
+  // Step 3: Determine mode
+  let mode;
+  let manifestCreated = false;
+
+  if (manifest && manifest.specsDir) {
+    // OpenSDD-driven re-init — no prompt needed
+    mode = 'full';
+  } else if (manifest && !manifest.specsDir) {
+    // Consumer re-init — offer upgrade
+    const upgrade = await promptYN('Upgrade to OpenSDD-driven? (y/n) ');
+    if (upgrade) {
+      mode = 'full';
+      manifest.specsDir = manifest.specsDir || 'opensdd';
+      fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
+    } else {
+      mode = 'consumer';
+    }
+  } else {
+    // Fresh init — prompt for mode
+    const choice = await promptChoice('How will this project use OpenSDD?', [
+      'Consumer only \u2014 install and implement dependency specs',
+      'OpenSDD-driven \u2014 full SDD methodology (author specs, both skills)',
+    ]);
+    mode = choice === 2 ? 'full' : 'consumer';
+  }
+
+  // Step 4: Install skills
+  let warnings;
+  try {
+    warnings = installSkills(cwd, { mode });
+  } catch (err) {
+    console.error(`Error: Could not install skills: ${err.message}`);
+    process.exit(1);
+  }
+
+  for (const w of warnings) {
+    console.warn(`Warning: ${w}`);
+  }
+
+  // Step 5: Create or preserve opensdd.json
   if (!manifest) {
-    manifest = {
-      opensdd: '0.1.0',
-      specsDir: 'opensdd',
-      depsDir: '.opensdd.deps',
-    };
+    if (mode === 'full') {
+      manifest = {
+        opensdd: '0.1.0',
+        specsDir: 'opensdd',
+        depsDir: '.opensdd.deps',
+      };
+    } else {
+      manifest = {
+        opensdd: '0.1.0',
+        depsDir: '.opensdd.deps',
+      };
+    }
     fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
     manifestCreated = true;
   }
 
-  const specsDir = manifest.specsDir || 'opensdd';
   const depsDir = manifest.depsDir || '.opensdd.deps';
-  const specsDirPath = path.join(cwd, specsDir);
   const depsDirPath = path.join(cwd, depsDir);
 
-  // Step 4: Create specs directory
-  const specsDirCreated = !fs.existsSync(specsDirPath);
-  fs.mkdirSync(specsDirPath, { recursive: true });
+  // Step 6: Create deps directory (both modes)
+  const depsDirCreated = !fs.existsSync(depsDirPath);
+  fs.mkdirSync(depsDirPath, { recursive: true });
 
-  // Step 5: Create skeleton spec.md
-  const specMdPath = path.join(specsDirPath, 'spec.md');
+  // Step 7: Full mode — create specs directory and skeleton spec.md
+  let specsDirCreated = false;
   let specMdCreated = false;
-  if (!fs.existsSync(specMdPath)) {
-    const projectName = getProjectName(cwd);
-    const skeleton = `# ${projectName}
+  if (mode === 'full') {
+    const specsDir = manifest.specsDir || 'opensdd';
+    const specsDirPath = path.join(cwd, specsDir);
+
+    specsDirCreated = !fs.existsSync(specsDirPath);
+    fs.mkdirSync(specsDirPath, { recursive: true });
+
+    const specMdPath = path.join(specsDirPath, 'spec.md');
+    if (!fs.existsSync(specMdPath)) {
+      const projectName = getProjectName(cwd);
+      const skeleton = `# ${projectName}
 
 > TODO: One-line description of what this software does.
 
@@ -155,30 +206,40 @@ export async function initCommand() {
 
 <!-- List properties that must hold true across all inputs and states. -->
 `;
-    fs.writeFileSync(specMdPath, skeleton);
-    specMdCreated = true;
+      fs.writeFileSync(specMdPath, skeleton);
+      specMdCreated = true;
+    }
   }
 
-  // Step 6: Create deps directory
-  const depsDirCreated = !fs.existsSync(depsDirPath);
-  fs.mkdirSync(depsDirPath, { recursive: true });
-
-  // Step 7: Print output
+  // Step 8: Print output
   const isReInit = !manifestCreated;
   const skillVerb = isReInit ? 'updated' : 'installed';
 
-  console.log('Initialized OpenSDD:');
-  console.log(
-    '  Skills installed for: Claude Code, Codex CLI, Cursor, GitHub Copilot, Gemini CLI, Amp'
-  );
-  console.log(`    sdd-manager              ${skillVerb} (6 agent formats)`);
-  console.log(`    sdd-generate             ${skillVerb} (6 agent formats)`);
-  console.log(
-    `  opensdd.json               ${manifestCreated ? 'created' : 'already exists (preserved)'}`
-  );
-  console.log(`  ${specsDir}/                   ${specsDirCreated ? 'created' : 'already exists'}`);
-  console.log(
-    `  ${specsDir}/spec.md            ${specMdCreated ? 'created (skeleton)' : 'already exists (preserved)'}`
-  );
-  console.log(`  ${depsDir}/             ${depsDirCreated ? 'created' : 'already exists'}`);
+  if (mode === 'consumer') {
+    console.log('Initialized OpenSDD (consumer):');
+    console.log(
+      '  Skills installed for: Claude Code, Codex CLI, Cursor, GitHub Copilot, Gemini CLI, Amp'
+    );
+    console.log(`    sdd-manager              ${skillVerb} (6 agent formats)`);
+    console.log(
+      `  opensdd.json               ${manifestCreated ? 'created' : 'already exists (preserved)'}`
+    );
+    console.log(`  ${depsDir}/             ${depsDirCreated ? 'created' : 'already exists'}`);
+  } else {
+    const specsDir = manifest.specsDir || 'opensdd';
+    console.log('Initialized OpenSDD:');
+    console.log(
+      '  Skills installed for: Claude Code, Codex CLI, Cursor, GitHub Copilot, Gemini CLI, Amp'
+    );
+    console.log(`    sdd-manager              ${skillVerb} (6 agent formats)`);
+    console.log(`    sdd-generate             ${skillVerb} (6 agent formats)`);
+    console.log(
+      `  opensdd.json               ${manifestCreated ? 'created' : 'already exists (preserved)'}`
+    );
+    console.log(`  ${specsDir}/                   ${specsDirCreated ? 'created' : 'already exists'}`);
+    console.log(
+      `  ${specsDir}/spec.md            ${specMdCreated ? 'created (skeleton)' : 'already exists (preserved)'}`
+    );
+    console.log(`  ${depsDir}/             ${depsDirCreated ? 'created' : 'already exists'}`);
+  }
 }
