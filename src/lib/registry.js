@@ -137,6 +137,47 @@ export async function fetchSpecManifest(registrySource, specName, version) {
 }
 
 /**
+ * Fetch skill files for a spec version from the registry.
+ * Returns an object mapping filename -> content string.
+ * Looks for SKILL.md and supplementary .md files, excluding spec.md, manifest.json, deviations.md.
+ */
+export async function fetchSkillFiles(registrySource, specName, version) {
+  const skipFiles = new Set(['spec.md', 'manifest.json', 'deviations.md']);
+  const files = {};
+
+  if (isLocalPath(registrySource)) {
+    const versionDir = path.join(registrySource, 'registry', specName, version);
+    if (!fs.existsSync(versionDir)) return null;
+    const entries = fs.readdirSync(versionDir, { withFileTypes: true });
+    for (const entry of entries) {
+      if (entry.isFile() && !skipFiles.has(entry.name)) {
+        files[entry.name] = fs.readFileSync(path.join(versionDir, entry.name), 'utf-8');
+      }
+    }
+    return files;
+  }
+
+  // GitHub registry
+  const { owner, repo } = parseGitHubUrl(registrySource);
+  const contents = await githubApiFetch(`registry/${specName}/${version}`, owner, repo);
+  if (!contents || !Array.isArray(contents)) return null;
+
+  for (const item of contents) {
+    if (item.type === 'file' && !skipFiles.has(item.name)) {
+      const content = await githubRawFetch(
+        `registry/${specName}/${version}/${item.name}`,
+        owner,
+        repo
+      );
+      if (content !== null) {
+        files[item.name] = content;
+      }
+    }
+  }
+  return files;
+}
+
+/**
  * Fetch all files for a specific spec version from the registry.
  * Returns an object mapping filename -> content string.
  */
