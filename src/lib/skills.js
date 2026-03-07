@@ -89,6 +89,27 @@ function updateManagedSection(filePath, sectionBody) {
  * Returns an array of warnings for non-critical failures.
  * Throws on critical failures (e.g., Claude Code installation fails).
  */
+/**
+ * Generate a SKILL.md from spec.md content.
+ * Extracts the H1 name and blockquote description, returns SKILL.md with frontmatter.
+ */
+export function generateSkillMd(specContent) {
+  const h1Match = specContent.match(/^#\s+(.+)$/m);
+  if (!h1Match) {
+    throw new Error('spec.md must contain an H1 header (e.g., "# My Spec")');
+  }
+
+  const blockquoteMatch = specContent.match(/^>\s+(.+)$/m);
+  if (!blockquoteMatch) {
+    throw new Error('spec.md must contain a blockquote description (e.g., "> A short description.")');
+  }
+
+  const name = h1Match[1].trim();
+  const description = blockquoteMatch[1].trim().replace(/"/g, '\\"');
+
+  return `---\nname: ${name}\ndescription: "${description}"\n---\n${specContent}`;
+}
+
 export function installSkills(projectRoot, { mode = 'full' } = {}) {
   const skills = getSkillContent();
   const warnings = [];

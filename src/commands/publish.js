@@ -15,6 +15,7 @@ import {
   fetchSpecIndex,
 } from '../lib/registry.js';
 import { validateSpec } from '../lib/validation.js';
+import { generateSkillMd } from '../lib/skills.js';
 
 function prompt(question) {
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
@@ -195,6 +196,42 @@ export async function publishCommand(options) {
     indexData.versions[version] = { specFormat };
     fs.writeFileSync(indexPath, JSON.stringify(indexData, null, 2) + '\n');
     console.log(`  Updated index.json        latest: ${version}`);
+
+    // Generate SKILL.md from spec.md
+    const specContent = fs.readFileSync(path.join(registryDir, 'spec.md'), 'utf-8');
+    const skillMd = generateSkillMd(specContent);
+
+    // Write archival copy in registry version dir
+    fs.writeFileSync(path.join(registryDir, 'SKILL.md'), skillMd);
+
+    // Create/update skills/<name>/ at registry repo root
+    const skillsDir = path.join(tmpDir, 'skills', name);
+    fs.mkdirSync(skillsDir, { recursive: true });
+    fs.writeFileSync(path.join(skillsDir, 'SKILL.md'), skillMd);
+
+    // Copy supplementary .md files (everything except spec.md, manifest.json, SKILL.md, and directories)
+    const skipFiles = new Set(['spec.md', 'manifest.json', 'SKILL.md']);
+    const skipDirs = new Set(['skills', '.changes']);
+    const entries = fs.readdirSync(specsDirPath, { withFileTypes: true });
+    for (const entry of entries) {
+      if (entry.isDirectory()) {
+        if (!skipDirs.has(entry.name)) {
+          copyDirRecursive(path.join(specsDirPath, entry.name), path.join(skillsDir, entry.name));
+        }
+        continue;
+      }
+      if (!skipFiles.has(entry.name) && entry.name.endsWith('.md')) {
+        fs.copyFileSync(path.join(specsDirPath, entry.name), path.join(skillsDir, entry.name));
+      }
+    }
+
+    // Write README in skills/ root (idempotent — overwritten each publish)
+    const skillsRootReadme = path.join(tmpDir, 'skills', 'README.md');
+    fs.writeFileSync(skillsRootReadme,
+      '# Skills\n\nThis directory is **auto-generated** by `opensdd publish`. Do not edit files here directly — they will be overwritten on the next publish.\n\nTo modify a skill, edit the source spec and re-publish.\n'
+    );
+
+    console.log(`  Generated SKILL.md        skills/${name}/`);
 
     // Commit and push
     execSync('git add -A', { cwd: tmpDir, stdio: 'pipe' });
