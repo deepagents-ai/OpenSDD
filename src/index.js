@@ -46,6 +46,7 @@ Commands:
 
 Options:
   --registry <url>        Alternative registry source
+  --skill                 Install as an agent skill instead of a full spec
   --branch <name>         Branch name for publish PR
   --version               Show version
   --help                  Show help`);
@@ -73,7 +74,7 @@ async function main() {
           console.error('Usage: opensdd install <name> [version]');
           process.exit(1);
         }
-        await installCommand(positional[0], positional[1], { registry: flags.registry });
+        await installCommand(positional[0], positional[1], { registry: flags.registry, skill: flags.skill });
         break;
       }
 

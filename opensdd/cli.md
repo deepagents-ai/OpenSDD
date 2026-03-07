@@ -292,9 +292,19 @@ Available specs:
 
 ### `opensdd install <name> [version]`
 
-Fetches a spec from the registry and installs it as a dependency.
+Fetches a spec from the registry and installs it as a dependency. The install behavior depends on the resolved install mode.
 
-#### Behavior
+#### Install Mode Resolution
+
+The install mode is resolved in this order:
+1. `--skill` flag on the command (if provided): forces skill mode for this install.
+2. `installMode` field in `opensdd.json` (if present).
+3. Default: `"default"`.
+
+- **`"default"`** (or omitted): Installs the spec as a dependency in `<depsDir>/<name>/`. The agent uses the sdd-manager skill to implement, test, and maintain conformance with the spec.
+- **`"skill"`**: Installs the spec as an agent skill across all supported agent formats. The spec content is available to the agent as contextual guidance — no formal implementation tracking, conformance, or deviations workflow. This is a lighter-weight integration for consumers who want spec guidance without the full SDD workflow.
+
+#### Behavior (default mode)
 
 1. Verify `opensdd.json` exists at the project root. If not, auto-bootstrap as a consumer project: create a minimal `opensdd.json` (no `specsDir`), install consumer-mode skills, create the `.opensdd.deps/` directory, print "Auto-initialized OpenSDD (consumer).", and continue with the normal install flow.
 2. Check if the spec `<name>` already exists as a key in `opensdd.json`'s `dependencies` object. If it does AND the spec directory exists in `<depsDir>`, print a message indicating the spec is already installed and suggest `opensdd update` instead. Exit with code 1. If the entry exists BUT the spec directory is missing, treat as a re-install: log a message noting the stale entry, then continue to step 4 using the version from the existing entry (unless `[version]` is explicitly provided, in which case use that).
@@ -308,13 +318,29 @@ Fetches a spec from the registry and installs it as a dependency.
 
 - `opensdd install slugify` MUST create `.opensdd.deps/slugify/` with all spec files and add a `slugify` entry to `opensdd.json` `dependencies`
 
+#### Behavior (skill mode)
+
+When the resolved install mode is `"skill"`:
+
+1. Verify `opensdd.json` exists at the project root. If not, auto-bootstrap as a consumer project. If the `--skill` flag was passed, set `installMode: "skill"` in the new `opensdd.json`.
+2. Check if the spec `<name>` already exists as a key in `opensdd.json`'s `dependencies` object. If it does, print a message indicating the spec is already installed and suggest `opensdd update` instead. Exit with code 1.
+3. Validate the spec name (lowercase alphanumeric and hyphens only).
+4. Fetch `index.json` from `registry/<name>/` in the configured registry source. If `[version]` is provided, use that version; otherwise use `latest` from `index.json`.
+5. Fetch the `SKILL.md` from `registry/<name>/<version>/`. If no `SKILL.md` exists, generate one from `spec.md` using `generateSkillMd`. Also fetch any supplementary `.md` files (excluding `spec.md`, `manifest.json`, `deviations.md`).
+6. Install the skill files across all supported agent formats, following the same per-agent mapping used by `opensdd init` (see Skill Installation Mapping). The skill is installed under the spec's name (e.g., `.claude/skills/<name>/SKILL.md`). Supplementary `.md` files are placed in a `references/` subdirectory.
+7. Add an entry to `opensdd.json` under `dependencies.<name>` with `version`, `specFormat`, `source`, and `mode: "skill"`. Consumer-managed fields (`implementation`, `tests`, `hasDeviations`) are NOT included.
+8. Print a success message.
+
+- `opensdd install slugify` in skill mode MUST install skill files across all agent formats and add a `slugify` entry to `opensdd.json` `dependencies` with `mode: "skill"`
+
 #### Input
 
 - `<name>` (required): The spec name as it appears in the registry.
 - `[version]` (optional): Specific semver version to install. Defaults to latest.
+- `--skill` (optional): Install as an agent skill instead of a full spec dependency. Overrides `installMode` in `opensdd.json`. When used during auto-bootstrap, sets `installMode: "skill"` in the new `opensdd.json`.
 - `--registry <url>` (optional): Alternative registry source.
 
-#### Output
+#### Output (default mode)
 
 ```
 Installed slugify v2.2.0 to .opensdd.deps/slugify/
@@ -322,11 +348,18 @@ Installed slugify v2.2.0 to .opensdd.deps/slugify/
 Run "implement the slugify spec" in your agent to generate an implementation.
 ```
 
+#### Output (skill mode)
+
+```
+Installed slugify v2.2.0 as skill
+  Skills installed for: Claude Code, Codex CLI, Cursor, GitHub Copilot, Gemini CLI, Amp
+```
+
 #### Errors
 
 - Spec not found in registry: print error listing available specs and exit with code 1.
 - Requested version not found: print error listing available versions and exit with code 1.
-- Spec already installed (entry and directory both exist): print message suggesting `opensdd update` and exit with code 1.
+- Spec already installed (entry and directory both exist in default mode, or entry exists in skill mode): print message suggesting `opensdd update` and exit with code 1.
 
 ### `opensdd update [name]`
 
@@ -648,7 +681,10 @@ The CLI reads the existing `opensdd.json` dependency entry, applies updated meta
 - Running `opensdd update apply <name>` when the agent hasn't finished processing the changeset: the CLI has no way to verify this — it's the user's responsibility to confirm the migration is complete before applying.
 - Running `opensdd init` in a project that already has OpenSDD initialized (with `specsDir`): overwrite all skill installation files across all agent formats, leave `opensdd.json` untouched.
 - Running `opensdd init` in a consumer-only project: prompt to upgrade to OpenSDD-driven. If declined, re-install consumer skills only.
-- Running `opensdd install` in an uninitialized project: auto-bootstrap as consumer, then continue with install.
+- Running `opensdd install` in an uninitialized project: auto-bootstrap as consumer, then continue with install. The auto-bootstrap uses default `installMode` unless the user later changes it.
+- Running `opensdd install` in skill mode for a spec that has no `SKILL.md` in the registry: generate one from `spec.md` using `generateSkillMd`.
+- Running `opensdd update` in skill mode: re-fetch the skill files and re-install across all agent formats, then stage the update as usual.
+- Switching `installMode` after dependencies are already installed: existing dependencies retain their original install mode (tracked via `mode` field in the dependency entry). New installs use the current `installMode`.
 - Running any command outside a project directory (no project markers found): warn but allow with confirmation, except `opensdd list` and `opensdd validate` which work anywhere.
 - Spec name contains characters invalid for directory names: reject with an error listing allowed characters (lowercase alphanumeric and hyphens).
 - Publishing a version that already exists in the registry: reject with an error suggesting a version bump.
@@ -679,7 +715,8 @@ The CLI reads the existing `opensdd.json` dependency entry, applies updated meta
 - The Claude Code skill installation (`.claude/skills/`) MUST always be present since Gemini CLI and Amp reference it
 - `opensdd.json` MUST be created by `opensdd init` if it does not exist, and MUST NOT be overwritten if it already exists
 - Consumer-managed `opensdd.json` fields MUST survive all update operations
-- Every installed dependency MUST have both a directory in `depsDir` and an entry in `opensdd.json` `dependencies`
+- Every default-mode dependency MUST have both a directory in `depsDir` and an entry in `opensdd.json` `dependencies`
+- Every skill-mode dependency MUST have skill files installed across all agent formats and an entry in `opensdd.json` `dependencies` with `mode: "skill"`
 - All commands MUST exit with code 0 on success and code 1 on error
 - The CLI MUST NOT invoke an AI model or coding agent
 - `opensdd publish` MUST NOT allow overwriting an existing version in the registry

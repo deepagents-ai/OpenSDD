@@ -44,13 +44,22 @@ One spec, many implementations. Install it into an Express API and get middlewar
 
 ## Open Spec Registry
 
-Specs can be published to the OpenSDD registry and installed into any project:
+Specs can be published to the OpenSDD registry and pulled into any project:
 
 ```bash
 opensdd install rate-limiter
 ```
 
-Your agent reads the installed spec and generates an implementation native to your stack.
+Installation supports two formats:
+
+- **Default mode** — The spec is installed into the `.opensdd.deps/` directory and managed through the full OpenSDD workflow: implementation tracking, conformance checking, deviations, and versioned updates.
+- **Skill mode** — The spec is installed as an agent skill across all supported coding agents (Claude Code, Codex CLI, Cursor, GitHub Copilot, Gemini CLI, Amp). Your agent gets the spec as contextual guidance without the formal SDD workflow. Use `--skill` on the install command, or set `"installMode": "skill"` in `opensdd.json` to make it the default.
+
+```bash
+opensdd install rate-limiter --skill
+```
+
+In either mode, your agent reads the spec and generates an implementation native to your stack.
 
 ## Documentation
 

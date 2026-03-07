@@ -85,6 +85,44 @@ function updateManagedSection(filePath, sectionBody) {
 }
 
 /**
+ * Append a line to the managed section in a file (GEMINI.md or AGENTS.md).
+ * Creates the file and section if they don't exist.
+ * If the line is already present in the section, does nothing.
+ */
+function appendToManagedSection(filePath, line) {
+  let content = '';
+  if (fs.existsSync(filePath)) {
+    content = fs.readFileSync(filePath, 'utf-8');
+  }
+
+  const startIdx = content.indexOf(OPENSDD_SECTION_START);
+  const endIdx = content.indexOf(OPENSDD_SECTION_END);
+
+  if (startIdx !== -1 && endIdx !== -1) {
+    // Section exists — check if line is already there
+    const sectionBody = content.substring(startIdx + OPENSDD_SECTION_START.length, endIdx);
+    if (sectionBody.includes(line)) return;
+
+    // Insert the line before the end marker
+    const before = content.substring(0, endIdx);
+    const after = content.substring(endIdx);
+    content = before + line + '\n' + after;
+  } else {
+    // No section — create one with the line
+    const sectionContent = `${OPENSDD_SECTION_START}\n${line}\n${OPENSDD_SECTION_END}`;
+    if (content.length > 0 && !content.endsWith('\n')) {
+      content += '\n';
+    }
+    if (content.length > 0) {
+      content += '\n';
+    }
+    content += sectionContent + '\n';
+  }
+
+  fs.writeFileSync(filePath, content);
+}
+
+/**
  * Install both skills (sdd-manager and sdd-generate) into all 6 supported agent formats.
  * Returns an array of warnings for non-critical failures.
  * Throws on critical failures (e.g., Claude Code installation fails).
@@ -108,6 +146,76 @@ export function generateSkillMd(specContent) {
   const description = blockquoteMatch[1].trim().replace(/"/g, '\\"');
 
   return `---\nname: ${name}\ndescription: "${description}"\n---\n${specContent}`;
+}
+
+/**
+ * Install a dependency spec as an agent skill across all supported agent formats.
+ * The skillMd is a SKILL.md string (with frontmatter). supplementaryFiles is an
+ * object mapping filename -> content for additional .md reference files.
+ */
+export function installDependencySkill(projectRoot, name, skillMd, supplementaryFiles = {}) {
+  const warnings = [];
+  const { frontmatter, body } = parseFrontmatter(skillMd);
+
+  // 1. Claude Code
+  const claudeBase = path.join(projectRoot, '.claude', 'skills');
+  writeFileSync(path.join(claudeBase, name, 'SKILL.md'), skillMd);
+  for (const [fileName, content] of Object.entries(supplementaryFiles)) {
+    writeFileSync(path.join(claudeBase, name, 'references', fileName), content);
+  }
+
+  // 2. Codex CLI
+  try {
+    const codexBase = path.join(projectRoot, '.agents', 'skills');
+    writeFileSync(path.join(codexBase, name, 'SKILL.md'), skillMd);
+    for (const [fileName, content] of Object.entries(supplementaryFiles)) {
+      writeFileSync(path.join(codexBase, name, 'references', fileName), content);
+    }
+  } catch (err) {
+    warnings.push(`Could not install Codex CLI skill for ${name}: ${err.message}`);
+  }
+
+  // 3. Cursor
+  try {
+    const cursorBase = path.join(projectRoot, '.cursor', 'rules');
+    ensureDir(cursorBase);
+
+    const cursorContent = `---\ndescription: "${frontmatter.description || ''}"\nalwaysApply: false\n---\n\n${body}`;
+    writeFileSync(path.join(cursorBase, `${name}.md`), cursorContent);
+  } catch (err) {
+    warnings.push(`Could not install Cursor skill for ${name}: ${err.message}`);
+  }
+
+  // 4. GitHub Copilot
+  try {
+    const copilotBase = path.join(projectRoot, '.github', 'instructions');
+    ensureDir(copilotBase);
+
+    const copilotContent = `---\napplyTo: "**"\ndescription: "${frontmatter.description || ''}"\n---\n\n${body}`;
+    writeFileSync(path.join(copilotBase, `${name}.instructions.md`), copilotContent);
+  } catch (err) {
+    warnings.push(`Could not install GitHub Copilot skill for ${name}: ${err.message}`);
+  }
+
+  // 5. Gemini CLI
+  try {
+    const geminiPath = path.join(projectRoot, 'GEMINI.md');
+    const geminiRef = `@.claude/skills/${name}/SKILL.md`;
+    appendToManagedSection(geminiPath, geminiRef);
+  } catch (err) {
+    warnings.push(`Could not install Gemini CLI skill for ${name}: ${err.message}`);
+  }
+
+  // 6. Amp
+  try {
+    const ampPath = path.join(projectRoot, 'AGENTS.md');
+    const ampRef = `@.claude/skills/${name}/SKILL.md`;
+    appendToManagedSection(ampPath, ampRef);
+  } catch (err) {
+    warnings.push(`Could not install Amp skill for ${name}: ${err.message}`);
+  }
+
+  return warnings;
 }
 
 export function installSkills(projectRoot, { mode = 'full' } = {}) {

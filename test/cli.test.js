@@ -827,6 +827,123 @@ describe('opensdd CLI', () => {
     });
   });
 
+  describe('install (skill mode)', () => {
+    beforeEach(() => {
+      setupTestProject();
+      // Create opensdd.json with installMode: "skill"
+      fs.writeFileSync(
+        path.join(TEST_PROJECT, 'opensdd.json'),
+        JSON.stringify({
+          opensdd: '0.1.0',
+          depsDir: '.opensdd.deps',
+          installMode: 'skill',
+        }, null, 2)
+      );
+      fs.mkdirSync(path.join(TEST_PROJECT, '.opensdd.deps'), { recursive: true });
+      // Install opensdd skills so the CLI works
+      run('init', TEST_PROJECT, { input: '1\n' });
+      // Re-write with skill mode (init overwrites opensdd.json for fresh projects)
+      const manifest = JSON.parse(fs.readFileSync(path.join(TEST_PROJECT, 'opensdd.json'), 'utf-8'));
+      manifest.installMode = 'skill';
+      fs.writeFileSync(
+        path.join(TEST_PROJECT, 'opensdd.json'),
+        JSON.stringify(manifest, null, 2)
+      );
+    });
+
+    it('should install a spec as a skill across agent formats', () => {
+      const output = run(`install slugify --registry ${TEST_REGISTRY}`);
+      assert.match(output, /Installed slugify v1\.1\.0 as skill/);
+      assert.match(output, /Skills installed for/);
+
+      // Verify Claude Code skill
+      const claudeSkill = path.join(TEST_PROJECT, '.claude', 'skills', 'slugify', 'SKILL.md');
+      assert.ok(fs.existsSync(claudeSkill));
+      const skillContent = fs.readFileSync(claudeSkill, 'utf-8');
+      assert.match(skillContent, /name: Slugify/);
+      assert.match(skillContent, /description:/);
+
+      // Verify Codex CLI skill
+      assert.ok(fs.existsSync(path.join(TEST_PROJECT, '.agents', 'skills', 'slugify', 'SKILL.md')));
+
+      // Verify Cursor rule
+      assert.ok(fs.existsSync(path.join(TEST_PROJECT, '.cursor', 'rules', 'slugify.md')));
+
+      // Verify Copilot instruction
+      assert.ok(fs.existsSync(path.join(TEST_PROJECT, '.github', 'instructions', 'slugify.instructions.md')));
+
+      // Verify no spec files in .opensdd.deps
+      assert.ok(!fs.existsSync(path.join(TEST_PROJECT, '.opensdd.deps', 'slugify')));
+
+      // Verify manifest entry has mode: "skill" and no consumer-managed fields
+      const manifest = JSON.parse(fs.readFileSync(path.join(TEST_PROJECT, 'opensdd.json'), 'utf-8'));
+      assert.equal(manifest.dependencies.slugify.version, '1.1.0');
+      assert.equal(manifest.dependencies.slugify.mode, 'skill');
+      assert.equal(manifest.dependencies.slugify.implementation, undefined);
+    });
+
+    it('should reject already installed spec in skill mode', () => {
+      run(`install slugify --registry ${TEST_REGISTRY}`);
+      const result = run(`install slugify --registry ${TEST_REGISTRY}`, TEST_PROJECT, {
+        expectError: true,
+      });
+      assert.match(result.stderr, /already installed/);
+      assert.equal(result.exitCode, 1);
+    });
+
+    it('should generate SKILL.md when not present in registry', () => {
+      // with-deps has no SKILL.md — should be generated from spec.md
+      const output = run(`install with-deps --registry ${TEST_REGISTRY}`);
+      assert.match(output, /Installed with-deps v1\.0\.0 as skill/);
+
+      const claudeSkill = path.join(TEST_PROJECT, '.claude', 'skills', 'with-deps', 'SKILL.md');
+      assert.ok(fs.existsSync(claudeSkill));
+      const content = fs.readFileSync(claudeSkill, 'utf-8');
+      assert.match(content, /name: With Deps/);
+    });
+  });
+
+  describe('install --skill flag', () => {
+    beforeEach(() => {
+      setupTestProject();
+      run('init', TEST_PROJECT, { input: '1\n' });
+    });
+
+    it('should install as skill when --skill flag is passed', () => {
+      const output = run(`install slugify --skill --registry ${TEST_REGISTRY}`);
+      assert.match(output, /Installed slugify v1\.1\.0 as skill/);
+
+      // Verify skill files exist
+      assert.ok(fs.existsSync(path.join(TEST_PROJECT, '.claude', 'skills', 'slugify', 'SKILL.md')));
+
+      // Verify no spec files in .opensdd.deps
+      assert.ok(!fs.existsSync(path.join(TEST_PROJECT, '.opensdd.deps', 'slugify')));
+
+      // Verify manifest entry
+      const manifest = JSON.parse(fs.readFileSync(path.join(TEST_PROJECT, 'opensdd.json'), 'utf-8'));
+      assert.equal(manifest.dependencies.slugify.mode, 'skill');
+    });
+
+    it('should override manifest installMode with --skill flag', () => {
+      // Manifest has no installMode (defaults to "default"), but --skill overrides
+      const manifest = JSON.parse(fs.readFileSync(path.join(TEST_PROJECT, 'opensdd.json'), 'utf-8'));
+      assert.equal(manifest.installMode, undefined);
+
+      const output = run(`install slugify --skill --registry ${TEST_REGISTRY}`);
+      assert.match(output, /as skill/);
+    });
+
+    it('should auto-bootstrap with installMode skill when --skill passed', () => {
+      fs.rmSync(path.join(TEST_PROJECT, 'opensdd.json'));
+      const output = run(`install slugify --skill --registry ${TEST_REGISTRY}`);
+      assert.match(output, /Auto-initialized OpenSDD/);
+      assert.match(output, /as skill/);
+
+      const manifest = JSON.parse(fs.readFileSync(path.join(TEST_PROJECT, 'opensdd.json'), 'utf-8'));
+      assert.equal(manifest.installMode, 'skill');
+    });
+  });
+
   describe('publish SKILL.md generation', () => {
     const PUBLISH_PROJECT = path.join('/tmp', 'opensdd-publish-skill-test');
 
