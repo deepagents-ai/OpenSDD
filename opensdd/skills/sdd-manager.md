@@ -117,10 +117,16 @@ Determine affected spec section → classify type → create/append to `deviatio
 Quality floors that apply to every spec implementation, regardless of language or project. These exist to maximize the chance of a correct implementation on the first attempt. The sdd-manager skill MUST instruct the agent to follow these defaults.
 
 **Typing and type safety:**
-- The agent MUST use the strongest type system available in the target language. In Python, this means type annotations with strict mypy-compatible types. In JavaScript projects, the agent SHOULD prefer TypeScript if the project supports it.
+- The agent MUST use the strongest type system available in the target language. In languages where strong typing is optional (Python, JavaScript/TypeScript, Ruby with Sorbet, etc.), the agent MUST always prefer strongly typed code. There is almost always a way to express correct types — the agent MUST exhaust type-safe approaches before resorting to escape hatches.
+- In Python, this means type annotations with strict mypy-compatible types. In JavaScript projects, the agent SHOULD prefer TypeScript if the project supports it.
 - All public function signatures MUST have fully typed parameters and return types.
 - The agent SHOULD use narrow types over broad ones (e.g., `str` over `Any`, specific union types over generic ones).
 - The agent MUST NOT use type suppression features (`# type: ignore`, `@ts-ignore`, `// nolint`, `as any`, etc.) unless there is no type-safe alternative. If used, the agent MUST include a comment explaining why.
+
+**Lint and static analysis suppression:**
+- The agent MUST NOT use lint suppression directives (`eslint-disable`, `noqa`, `noinspection`, `@ts-expect-error`, `#pragma warning disable`, etc.) as a shortcut to silence warnings. The agent MUST fix the underlying issue instead.
+- Suppression is permitted ONLY when the agent has confirmed there is no compliant alternative — for example, a genuine incompatibility between library type definitions, a false positive from the linter, or a framework pattern that the linter cannot understand. The agent MUST include a comment explaining the specific reason the suppression is necessary.
+- If the agent is unsure whether suppression is justified, it MUST flag the situation to the user and ask before adding the directive.
 
 **Error handling:**
 - All error paths defined in the spec MUST be handled explicitly. The agent MUST NOT silently swallow errors.

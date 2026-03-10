@@ -1,20 +1,20 @@
 ---
 name: sdd-manager
-description: "Implement, update, and verify installed OpenSDD dependency specs. Use when the user asks to implement a spec, process a spec update, check conformance, or create a deviation."
+description: "Manage OpenSDD specs — revise authored specs, implement dependency specs, process updates, check conformance, and create deviations. Use when the user asks to revise a spec, implement a spec, process a spec update, check conformance, or create a deviation."
 ---
 # SDD Manager
 
-> Teaches agents how to implement, update, and verify installed dependency specs in an OpenSDD-compliant project.
+> Teaches agents how to revise authored specs, and implement, update, and verify dependency specs in an OpenSDD-compliant project.
 
 ## Overview
 
-The sdd-manager skill is installed once per project via `opensdd init` alongside the sdd-generate skill, into each supported coding agent's configuration directory. It teaches agents four workflows: implementing a spec, processing a spec update, checking conformance, and creating deviations. It also defines universal implementation defaults, the project conventions check, and the verification protocol that apply to all spec implementations.
+The sdd-manager skill is installed once per project via `opensdd init` alongside the sdd-generate skill, into each supported coding agent's configuration directory. It teaches agents five workflows: revising an authored spec, implementing a dependency spec, processing a dependency spec update, checking conformance, and creating deviations. It also defines universal implementation defaults, the project conventions check, and the verification protocol that apply to all spec implementations.
 
-This skill is the required entry point whenever an agent reads an installed OpenSDD dependency spec to make changes to the project — whether that is a first implementation, an incremental update, a conformance check, or a deviation. The agent MUST NOT implement or modify code based on an OpenSDD spec outside of the workflows defined here.
+This skill is the required entry point whenever an agent works with OpenSDD specs — whether revising the project's authored spec, implementing a dependency spec, processing a dependency update, checking conformance, or creating a deviation. The agent MUST NOT implement or modify code based on an OpenSDD spec outside of the workflows defined here.
 
 ## Spec as Source of Truth
 
-The dependency spec (`spec.md`) is the authoritative description of what to build. It is already a carefully structured behavioral contract with precise language, edge cases, and constraints. The agent MUST treat it as the primary reference throughout all workflows and MUST NOT replace it with a self-generated substitute.
+The spec (`spec.md`) — whether an authored spec or an installed dependency — is the authoritative description of what to build. It is already a carefully structured behavioral contract with precise language, edge cases, and constraints. The agent MUST treat it as the primary reference throughout all workflows and MUST NOT replace it with a self-generated substitute.
 
 **Do not rewrite the spec into a plan.** The agent MUST NOT translate spec requirements into its own planning format (todo lists, step-by-step plans, internal summaries, etc.) as a substitute for the spec itself. Such translations are inherently lossy — they flatten nuance, drop edge cases, and shift intent. The spec's behavioral contract already defines what to build; duplicating it in another format adds no value and introduces drift.
 
@@ -22,9 +22,60 @@ The dependency spec (`spec.md`) is the authoritative description of what to buil
 
 **Plans are for additive context only.** If the agent uses planning tools (todo lists, scratchpads, plan mode, etc.), those plans MUST be limited to information that is _not_ in the spec: project-specific decisions (file paths, module structure, integration points), target language and framework details, implementation ordering, and deviations. Plans SHOULD reference spec sections by name rather than restating their content.
 
+## Workflow Identification
+
+When entering any sdd-manager workflow, the agent MUST announce the active workflow to the user before proceeding. The announcement MUST include the workflow name, the target spec, and a one-line description of what will happen next.
+
+Format:
+
+> **[sdd-manager: {Workflow}]** {Target spec}
+> {What the user should expect}
+
+Examples:
+
+> **[sdd-manager: Revise]** opensdd/cli.md
+> I'll draft a changeset for your review before modifying the spec.
+
+> **[sdd-manager: Implement]** .opensdd.deps/slugify/spec.md
+> I'll walk you through the spec, then implement and verify.
+
+> **[sdd-manager: Update]** .opensdd.deps/slugify
+> Reading the staged changeset to identify what changed.
+
+If the agent determines the wrong workflow was triggered, it MUST stop and clarify with the user before proceeding.
+
 ## Workflows
 
+### Revise
+
+For incremental changes to the project's authored spec. The agent drafts a changeset for the user to review before modifying the spec or implementation.
+
+1. **Understand the request.** Read the user's description of the desired behavior change. Read the current spec from `<specsDir>/` (`spec.md` and any supplementary files).
+
+2. **Draft changeset.** Write a changeset to `<specsDir>/.changes/changeset.md` containing:
+   - **Rationale:** Why this change is being made — the user's request, the problem it solves, and any design decisions.
+   - **Changed Files:** For each spec file being modified, a unified diff showing the proposed changes. For new sections being added, show the full proposed content as an addition.
+
+   The changeset MUST be persisted to disk (not kept in conversation context) so it survives context window clears. The agent MUST NOT modify spec files or implementation code during this step.
+
+3. **Review.** Present the changeset to the user. Summarize what's changing and why. The user may:
+   - **Approve** — proceed to step 4.
+   - **Request modifications** — the agent updates the changeset and re-presents. The agent MUST re-read the changeset from disk before modifying it.
+   - **Reject** — delete `<specsDir>/.changes/` and stop.
+
+   The agent MUST NOT proceed past this step without explicit user approval.
+
+4. **Apply to spec.** Apply the approved diffs to the spec files. Delete `<specsDir>/.changes/` after successful application.
+
+5. **Implement.** Update the implementation to match the revised spec. Use the changeset to identify which behavioral sections changed — only modify code affected by the changes. The agent MUST re-read the updated spec sections directly (not work from the changeset diffs) when implementing.
+
+6. **Verify.** Execute the verification protocol (see Verification Protocol section below) scoped to the changed sections: regenerate affected tests, run until all pass, dispatch subagent for spec compliance audit scoped to the changed sections, fix any findings, re-run tests.
+
+7. **Report.** Summarize what changed in the spec and implementation. If the project has `publish` configured in `opensdd.json`, remind the user to bump the version before publishing.
+
 ### Implement
+
+For first-time implementation of a dependency spec.
 
 1. **Read:** Read the dependency spec from `.opensdd.deps/<name>/` (`spec.md` and any supplementary files), `deviations.md` (if it exists), and other dependency specs it depends on.
 
@@ -66,10 +117,16 @@ Determine affected spec section → classify type → create/append to `deviatio
 Quality floors that apply to every spec implementation, regardless of language or project. These exist to maximize the chance of a correct implementation on the first attempt. The sdd-manager skill MUST instruct the agent to follow these defaults.
 
 **Typing and type safety:**
-- The agent MUST use the strongest type system available in the target language. In Python, this means type annotations with strict mypy-compatible types. In JavaScript projects, the agent SHOULD prefer TypeScript if the project supports it.
+- The agent MUST use the strongest type system available in the target language. In languages where strong typing is optional (Python, JavaScript/TypeScript, Ruby with Sorbet, etc.), the agent MUST always prefer strongly typed code. There is almost always a way to express correct types — the agent MUST exhaust type-safe approaches before resorting to escape hatches.
+- In Python, this means type annotations with strict mypy-compatible types. In JavaScript projects, the agent SHOULD prefer TypeScript if the project supports it.
 - All public function signatures MUST have fully typed parameters and return types.
 - The agent SHOULD use narrow types over broad ones (e.g., `str` over `Any`, specific union types over generic ones).
 - The agent MUST NOT use type suppression features (`# type: ignore`, `@ts-ignore`, `// nolint`, `as any`, etc.) unless there is no type-safe alternative. If used, the agent MUST include a comment explaining why.
+
+**Lint and static analysis suppression:**
+- The agent MUST NOT use lint suppression directives (`eslint-disable`, `noqa`, `noinspection`, `@ts-expect-error`, `#pragma warning disable`, etc.) as a shortcut to silence warnings. The agent MUST fix the underlying issue instead.
+- Suppression is permitted ONLY when the agent has confirmed there is no compliant alternative — for example, a genuine incompatibility between library type definitions, a false positive from the linter, or a framework pattern that the linter cannot understand. The agent MUST include a comment explaining the specific reason the suppression is necessary.
+- If the agent is unsure whether suppression is justified, it MUST flag the situation to the user and ask before adding the directive.
 
 **Error handling:**
 - All error paths defined in the spec MUST be handled explicitly. The agent MUST NOT silently swallow errors.

@@ -1,11 +1,11 @@
 ---
-description: "Generate an OpenSDD behavioral spec from existing code. Use when the user asks to generate, create, or extract a spec from a repository or codebase."
+description: "Extract an OpenSDD behavioral spec from an existing codebase. Use when the user asks to generate, create, or extract a spec from a repository or codebase."
 alwaysApply: false
 ---
 
 # SDD Generate
 
-> Guides an AI agent through analyzing a repository and generating a behavioral spec in the OpenSDD format.
+> Guides an AI agent through analyzing an existing codebase and extracting a behavioral spec in the OpenSDD format.
 
 ## Overview
 

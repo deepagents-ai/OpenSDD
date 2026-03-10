@@ -8,6 +8,8 @@ const __dirname = path.dirname(__filename);
 const OPENSDD_SECTION_START = '<!-- OpenSDD Skills (managed by opensdd init \u2014 do not edit this section) -->';
 const OPENSDD_SECTION_END = '<!-- /OpenSDD Skills -->';
 
+const GATE_TEXT = `This project uses OpenSDD spec-driven development. Before implementing, modifying, or verifying any code governed by an OpenSDD spec, you MUST load and follow the sdd-manager skill/instructions first. Check \`opensdd.json\` and \`.opensdd.deps/\` to identify spec-governed code.`;
+
 function parseFrontmatter(content) {
   if (!content.startsWith('---\n')) return { frontmatter: {}, body: content };
   const endIdx = content.indexOf('\n---\n', 4);
@@ -223,6 +225,12 @@ export function installSkills(projectRoot, { mode = 'full' } = {}) {
   const warnings = [];
   const isFull = mode === 'full';
 
+  // 0. Always-on gate rule (Claude Code)
+  writeFileSync(
+    path.join(projectRoot, '.claude', 'rules', 'opensdd-gate.md'),
+    GATE_TEXT + '\n'
+  );
+
   // 1. Claude Code (critical — Gemini and Amp depend on this)
   const claudeBase = path.join(projectRoot, '.claude', 'skills');
   writeFileSync(
@@ -274,6 +282,9 @@ export function installSkills(projectRoot, { mode = 'full' } = {}) {
     const cursorBase = path.join(projectRoot, '.cursor', 'rules');
     ensureDir(cursorBase);
 
+    // Gate rule (alwaysApply: true)
+    writeFileSync(path.join(cursorBase, 'opensdd-gate.md'), `---\nalwaysApply: true\n---\n\n${GATE_TEXT}\n`);
+
     const { frontmatter: managerFm, body: managerBody } = parseFrontmatter(skills.sddManager);
 
     const sddManagerCursor = `---
@@ -314,6 +325,10 @@ ${generateBody}`;
     const copilotBase = path.join(projectRoot, '.github', 'instructions');
     ensureDir(copilotBase);
 
+    // Gate rule in copilot-instructions.md (always loaded)
+    const copilotInstructionsPath = path.join(projectRoot, '.github', 'copilot-instructions.md');
+    updateManagedSection(copilotInstructionsPath, GATE_TEXT);
+
     const { frontmatter: managerFmCp, body: managerBodyCp } = parseFrontmatter(skills.sddManager);
 
     writeFileSync(
@@ -340,7 +355,7 @@ ${generateBody}`;
   // 5. Gemini CLI
   try {
     const geminiPath = path.join(projectRoot, 'GEMINI.md');
-    let geminiBody = `@.claude/skills/sdd-manager/SKILL.md
+    let geminiBody = `${GATE_TEXT}\n\n@.claude/skills/sdd-manager/SKILL.md
 @.claude/skills/sdd-manager/references/spec-format.md`;
     if (isFull) {
       geminiBody += `\n@.claude/skills/sdd-generate/SKILL.md
@@ -351,10 +366,10 @@ ${generateBody}`;
     warnings.push(`Could not install Gemini CLI skills: ${err.message}`);
   }
 
-  // 6. Amp
+  // 6. Amp / Codex CLI
   try {
     const ampPath = path.join(projectRoot, 'AGENTS.md');
-    let ampBody = `@.claude/skills/sdd-manager/SKILL.md
+    let ampBody = `${GATE_TEXT}\n\n@.claude/skills/sdd-manager/SKILL.md
 @.claude/skills/sdd-manager/references/spec-format.md`;
     if (isFull) {
       ampBody += `\n@.claude/skills/sdd-generate/SKILL.md

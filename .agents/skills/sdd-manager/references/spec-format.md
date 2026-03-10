@@ -21,7 +21,7 @@ A project MAY be both an author (has `opensdd/spec.md`) and a consumer (has `.op
 
 In a monorepo, each sub-project that needs its own spec maintains its own `opensdd.json`, `opensdd/`, and `.opensdd.deps/` at its sub-project root — the same way each package in an npm workspace has its own `package.json`. The CLI always operates relative to the nearest `opensdd.json` in the directory hierarchy.
 
-The OpenSDD protocol installs two skills into the project: **sdd-manager** teaches agents how to implement, update, and verify installed dependency specs; **sdd-generate** teaches agents how to generate specs from existing code. Individual specs are not skills — they are data that the skills operate on.
+The OpenSDD protocol installs two skills into the project: **sdd-manager** teaches agents how to revise authored specs and implement, update, and verify dependency specs; **sdd-generate** teaches agents how to extract a spec from an existing codebase. Individual specs are not skills — they are data that the skills operate on.
 
 Skills are installed into the native configuration format of each supported coding agent so they are automatically discovered. The canonical skill content follows the Agent Skills standard (agentskills.io) with `SKILL.md` files; adapter files are generated for agents with different configuration systems. See the CLI spec for the full installation mapping. Supported agents:
 
@@ -227,11 +227,12 @@ The CLI resolves `opensdd.json` by searching upward from the current working dir
 
 The development methodology for an OpenSDD-compliant repo:
 
-1. **Edit the spec** — all behavior changes start in `opensdd/spec.md`. The spec is the source of truth.
-2. **Update the code** — the developer or their AI agent updates the implementation to match the spec. The protocol is deliberately not prescriptive about this step — the agent reads the spec, understands what changed, and updates the code accordingly.
-3. **Publish** — when the spec and implementation are in sync, the developer publishes the spec version to the registry via `opensdd publish`.
-
-The protocol does not mandate a specific tooling flow for step 2 (e.g., changesets, diffs). The spec is always readable in full, and any capable agent can compare the spec against the implementation to identify gaps.
+1. **Propose** — behavior changes are drafted as a changeset (rationale + unified diffs) staged in `<specsDir>/.changes/changeset.md`. The sdd-manager skill's Revise workflow guides this process.
+2. **Review** — the user reviews the proposed changeset, iterates if needed, and approves.
+3. **Apply** — the agent applies the approved changeset to the spec files and deletes the staging directory.
+4. **Implement** — the agent updates the implementation to match the revised spec, using the changeset to scope the changes.
+5. **Verify** — the agent runs the verification protocol (tests + spec compliance audit) scoped to the changed sections.
+6. **Publish** — when the spec and implementation are in sync, the developer publishes the spec version to the registry via `opensdd publish`.
 
 #### Publishing
 
@@ -405,6 +406,10 @@ Captures everything the agent needs to understand and process the update without
 **Spec-format:** {old version} → {new version} (or "unchanged")
 **Date:** {ISO 8601 date}
 
+## Rationale (optional)
+
+{Context for why this version was published. Omitted if not available from the registry.}
+
 ## Changed Files
 
 ### spec.md
@@ -438,13 +443,48 @@ Contains the metadata needed to finalize the `opensdd.json` dependency entry whe
 
 This is a transient artifact. `opensdd update apply` reads this file, applies the metadata to `opensdd.json`, and deletes the staging directory.
 
+### Authored Spec Staging
+
+When a behavior change is proposed to the project's authored spec via the sdd-manager Revise workflow, the agent stages the changeset in `<specsDir>/.changes/`:
+
+```
+opensdd/
+  .changes/
+    changeset.md      # Rationale + unified diffs of proposed spec changes
+  spec.md             # Unchanged until the changeset is approved and applied
+```
+
+The staging directory is persisted to disk so it survives context window clears. It is deleted after the changeset is applied (or rejected).
+
+#### changeset.md (authored spec)
+
+```markdown
+# Changeset
+
+**Date:** {ISO 8601 date}
+
+## Rationale
+
+{Why this change is being made — the user's request, the problem it solves, and any design decisions made.}
+
+## Changed Files
+
+### {filename}
+
+\`\`\`diff
+{unified diff of proposed changes}
+\`\`\`
+```
+
+The rationale section distinguishes authored spec changesets from dependency update changesets. For dependency updates, the "why" is implicit in the version change. For authored spec changes, the "why" is the design decision being made and MUST be captured explicitly.
+
 ### SDD-Manager Skill
 
-The sdd-manager skill teaches agents how to implement, update, and verify installed dependency specs. It is installed once per project via `opensdd init` alongside the sdd-generate skill, into each supported agent's configuration directory. See [sdd-manager.md](skills/sdd-manager.md) for the full skill workflow, including implementation defaults, the project conventions check, and the verification protocol.
+The sdd-manager skill teaches agents how to revise authored specs and implement, update, and verify dependency specs. It is installed once per project via `opensdd init` alongside the sdd-generate skill, into each supported agent's configuration directory. See [sdd-manager.md](skills/sdd-manager.md) for the full skill workflow, including implementation defaults, the project conventions check, and the verification protocol.
 
 ### SDD-Generate Skill
 
-The sdd-generate skill teaches agents how to generate a spec from existing code. See [sdd-generate.md](skills/sdd-generate.md) for the full skill workflow.
+The sdd-generate skill teaches agents how to extract a behavioral spec from an existing codebase. See [sdd-generate.md](skills/sdd-generate.md) for the full skill workflow.
 
 ### Versioning
 
@@ -475,7 +515,7 @@ Specs use semantic versioning:
 - How spec dependencies are resolved when circular (not currently supported)
 - The sdd-generate skill's internal workflow (separate concern)
 - File encoding (assumed UTF-8)
-- How the author syncs implementation with spec changes (the protocol is deliberately not prescriptive about this)
+- The exact wording of the sdd-manager workflow identification announcement
 - The exact mechanism for authenticating with the registry during publish (deferred to local git/gh credentials)
 
 ## Invariants

@@ -120,11 +120,37 @@ Initialized OpenSDD:
 
 All installed skill files are **spec-owned** — they are overwritten on every `opensdd init` and MUST NOT be edited by the user.
 
-#### Claude Code (Agent Skills standard)
+#### Always-On Gate Rule
 
-Each skill is a directory with a `SKILL.md` and a `references/` subdirectory. Claude Code auto-discovers skills in `.claude/skills/`. The `SKILL.md` files include Agent Skills frontmatter with `name` and `description` fields, copied as-is from the source skill files.
+In addition to skill files, `opensdd init` installs a lightweight **gate rule** into each agent's always-loaded configuration. The gate rule ensures that any agent operating in the project is aware of the OpenSDD workflow requirement before touching spec-governed code — even if the agent has not yet loaded the full sdd-manager skill.
+
+The gate rule text is:
 
 ```
+This project uses OpenSDD spec-driven development. Before implementing, modifying, or verifying any code governed by an OpenSDD spec, you MUST load and follow the sdd-manager skill/instructions first. Check `opensdd.json` and `.opensdd.deps/` to identify spec-governed code.
+```
+
+The gate rule is installed into each agent's always-loaded file:
+
+| Agent | Gate file | Always-loaded mechanism |
+|---|---|---|
+| Claude Code | `.claude/rules/opensdd-gate.md` | Rules without `paths:` frontmatter always load |
+| Cursor | `.cursor/rules/opensdd-gate.md` | `alwaysApply: true` frontmatter |
+| GitHub Copilot | `.github/copilot-instructions.md` | Always included in every Copilot request |
+| Gemini CLI | `GEMINI.md` | Always loaded at project root |
+| Amp / Codex CLI | `AGENTS.md` | Always loaded at project root |
+
+For Copilot, Gemini CLI, and Amp / Codex CLI, the gate text is prepended to the existing managed OpenSDD section (before the `@` import directives or skill references). For Claude Code and Cursor, the gate is a separate file from the skill files.
+
+The gate rule files are **spec-owned** — they are overwritten on every `opensdd init`.
+
+#### Claude Code (Agent Skills standard)
+
+Each skill is a directory with a `SKILL.md` and a `references/` subdirectory. Claude Code auto-discovers skills in `.claude/skills/` and rules in `.claude/rules/`. The `SKILL.md` files include Agent Skills frontmatter with `name` and `description` fields, copied as-is from the source skill files.
+
+```
+.claude/rules/
+  opensdd-gate.md               ← gate rule (see Always-On Gate Rule)
 .claude/skills/
   sdd-manager/
     SKILL.md                    ← skills/sdd-manager.md
@@ -158,9 +184,17 @@ Cursor discovers rules as `.md` or `.mdc` files in `.cursor/rules/`. Each skill 
 
 ```
 .cursor/rules/
-  sdd-manager.md                ← skills/sdd-manager.md with Cursor frontmatter
-  sdd-generate.md               ← skills/sdd-generate.md with Cursor frontmatter
-  opensdd-spec-format.md        ← spec-format.md with Cursor frontmatter
+  opensdd-gate.md                 ← gate rule with alwaysApply: true (see Always-On Gate Rule)
+  sdd-manager.md                  ← skills/sdd-manager.md with Cursor frontmatter
+  sdd-generate.md                 ← skills/sdd-generate.md with Cursor frontmatter
+  opensdd-spec-format.md          ← spec-format.md with Cursor frontmatter
+```
+
+Frontmatter for `opensdd-gate.md`:
+```yaml
+---
+alwaysApply: true
+---
 ```
 
 Frontmatter for `sdd-manager.md`:
@@ -189,9 +223,12 @@ alwaysApply: false
 
 #### GitHub Copilot
 
-Copilot discovers instructions as `.instructions.md` files in `.github/instructions/`. Each skill becomes an instruction file with YAML frontmatter. The `applyTo` field is set to `"**"` so the instructions are available across the project.
+Copilot discovers instructions as `.instructions.md` files in `.github/instructions/` and project-wide instructions in `.github/copilot-instructions.md`. Each skill becomes an instruction file with YAML frontmatter. The `applyTo` field is set to `"**"` so the instructions are available across the project.
+
+The gate rule is installed in `.github/copilot-instructions.md` (always loaded by Copilot) as a managed section.
 
 ```
+.github/copilot-instructions.md  ← gate rule in managed section (see Always-On Gate Rule)
 .github/instructions/
   sdd-manager.instructions.md   ← skills/sdd-manager.md with Copilot frontmatter
   sdd-generate.instructions.md  ← skills/sdd-generate.md with Copilot frontmatter
@@ -229,6 +266,8 @@ Gemini CLI discovers `GEMINI.md` files in the project directory and supports `@f
 Appended to `GEMINI.md`:
 ```markdown
 <!-- OpenSDD Skills (managed by opensdd init — do not edit this section) -->
+This project uses OpenSDD spec-driven development. Before implementing, modifying, or verifying any code governed by an OpenSDD spec, you MUST load and follow the sdd-manager skill/instructions first. Check `opensdd.json` and `.opensdd.deps/` to identify spec-governed code.
+
 @.claude/skills/sdd-manager/SKILL.md
 @.claude/skills/sdd-manager/references/spec-format.md
 @.claude/skills/sdd-generate/SKILL.md
@@ -237,13 +276,15 @@ Appended to `GEMINI.md`:
 
 The CLI MUST only modify the clearly delimited OpenSDD section. If a `GEMINI.md` already exists with an OpenSDD section, the CLI MUST replace that section. Content outside the section MUST NOT be modified.
 
-#### Amp
+#### Amp / Codex CLI
 
-Amp discovers `AGENTS.md` files in the project directory and supports `@` reference syntax for including other files. The CLI appends references to `AGENTS.md` (creating it if it does not exist) that point to the canonical skill files.
+Amp and Codex CLI discover `AGENTS.md` files in the project directory and support `@` reference syntax for including other files. The CLI appends references to `AGENTS.md` (creating it if it does not exist) that point to the canonical skill files.
 
 Appended to `AGENTS.md`:
 ```markdown
 <!-- OpenSDD Skills (managed by opensdd init — do not edit this section) -->
+This project uses OpenSDD spec-driven development. Before implementing, modifying, or verifying any code governed by an OpenSDD spec, you MUST load and follow the sdd-manager skill/instructions first. Check `opensdd.json` and `.opensdd.deps/` to identify spec-governed code.
+
 @.claude/skills/sdd-manager/SKILL.md
 @.claude/skills/sdd-manager/references/spec-format.md
 @.claude/skills/sdd-generate/SKILL.md
