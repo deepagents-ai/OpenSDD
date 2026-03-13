@@ -1,6 +1,6 @@
 ---
 name: sdd-manager
-description: "Manage OpenSDD specs — revise authored specs, implement dependency specs, process updates, check conformance, and create deviations. Use when the user asks to revise a spec, implement a spec, process a spec update, check conformance, or create a deviation."
+description: "Manage OpenSDD specs — revise authored specs, implement dependency specs, process updates, check conformance, create deviations, and propose spec changes for CI-driven implementation. Use when the user asks to revise a spec, implement a spec, process a spec update, check conformance, create a deviation, or propose a spec change."
 ---
 # SDD Manager
 
@@ -8,9 +8,9 @@ description: "Manage OpenSDD specs — revise authored specs, implement dependen
 
 ## Overview
 
-The sdd-manager skill is installed once per project via `opensdd init` alongside the sdd-generate skill, into each supported coding agent's configuration directory. It teaches agents five workflows: revising an authored spec, implementing a dependency spec, processing a dependency spec update, checking conformance, and creating deviations. It also defines universal implementation defaults, the project conventions check, and the verification protocol that apply to all spec implementations.
+The sdd-manager skill is installed once per project via `opensdd init` alongside the sdd-generate skill, into each supported coding agent's configuration directory. It teaches agents six workflows: revising an authored spec, implementing a dependency spec, processing a dependency spec update, checking conformance, creating deviations, and proposing spec changes for CI-driven implementation. It also defines universal implementation defaults, the project conventions check, and the verification protocol that apply to all spec implementations.
 
-This skill is the required entry point whenever an agent works with OpenSDD specs — whether revising the project's authored spec, implementing a dependency spec, processing a dependency update, checking conformance, or creating a deviation. The agent MUST NOT implement or modify code based on an OpenSDD spec outside of the workflows defined here.
+This skill is the required entry point whenever an agent works with OpenSDD specs — whether revising the project's authored spec, implementing a dependency spec, processing a dependency update, checking conformance, creating a deviation, or proposing a spec change. The agent MUST NOT implement or modify code based on an OpenSDD spec outside of the workflows defined here.
 
 ## Spec as Source of Truth
 
@@ -42,7 +42,12 @@ Examples:
 > **[sdd-manager: Update]** .opensdd.deps/slugify
 > Reading the staged changeset to identify what changed.
 
+> **[sdd-manager: Propose]** opensdd/cli.md
+> I'll create a spec-only PR for CI-driven implementation.
+
 If the agent determines the wrong workflow was triggered, it MUST stop and clarify with the user before proceeding.
+
+- **Propose**: User says "propose", "submit spec", "create spec PR", "send spec for implementation", or has staged/modified `.sdd.md` files and asks to "push" or "submit" them. Route to the Propose workflow.
 
 ## Workflows
 
@@ -111,6 +116,34 @@ Run existing test suite → report pass/fail. If test suite is missing or stale,
 ### Create Deviation
 
 Determine affected spec section → classify type → create/append to `deviations.md` in `.opensdd.deps/<name>/` → update test suite to skip affected tests → update `hasDeviations` in `opensdd.json`.
+
+### Propose
+
+For submitting spec changes as a PR so that implementation happens in CI (via GitHub Actions and `claude-code-action`) rather than locally. This keeps the developer's working tree clean — spec authoring happens locally, but implementation happens in CI.
+
+1. **Identify spec changes.** Scan the working tree for modified or new `.sdd.md` files (check both staged and unstaged changes, as well as untracked files in `<specsDir>/`). If no spec changes are found, inform the user and suggest they author or revise a spec first using the Revise workflow. Do NOT proceed without spec changes.
+
+2. **Create a feature branch.** Create a new branch from the current branch with the naming convention `spec/<spec-name>`, where `<spec-name>` is derived from the primary spec filename (e.g., `spec/auth-flow` from `auth-flow.sdd.md`). If a branch with that name already exists, prompt the user for a suffix or alternative name.
+
+3. **Stage spec files only.** Stage only the `.sdd.md` files and any related spec assets (e.g., supplementary files referenced by the spec). The agent MUST NOT stage implementation files, test files, or other non-spec changes. If the working tree has non-spec changes, leave them unstaged.
+
+4. **Commit.** Commit the staged spec files with a conventional commit message:
+   ```
+   spec: <brief description of the spec change>
+   ```
+   The agent SHOULD derive the description from the spec content or filenames.
+
+5. **Push.** Push the feature branch to the remote.
+
+6. **Create PR.** Create a pull request targeting the base branch:
+   - **Title:** `spec: <brief description>`
+   - **Labels:** `spec`
+   - **Body:** Include a summary of the spec changes and a note explaining that merging this PR will trigger auto-implementation via GitHub Actions.
+
+7. **Confirm.** Output the PR URL and explain to the user that:
+   - Merging the PR will automatically create an implementation issue
+   - `claude-code-action` will pick up the issue and open an implementation PR
+   - No local implementation work is needed — the CI pipeline handles it
 
 ## Universal Implementation Defaults
 
