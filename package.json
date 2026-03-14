@@ -1,6 +1,6 @@
 {
   "name": "opensdd",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "description": "The official OpenSDD (Open Spec-Driven Development) CLI, spec, and spec registry",
   "type": "module",
   "bin": {
