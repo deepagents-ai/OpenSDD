@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { execSync } from 'node:child_process';
 import readline from 'node:readline';
 import { installSkills } from '../lib/skills.js';
 
@@ -26,6 +27,19 @@ const PROJECT_MARKERS = [
 
 function hasProjectMarker(dir) {
   return PROJECT_MARKERS.some((marker) => fs.existsSync(path.join(dir, marker)));
+}
+
+function findGitRoot(dir) {
+  try {
+    const root = execSync('git rev-parse --show-toplevel', {
+      cwd: dir,
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+    }).trim();
+    return root;
+  } catch {
+    return null;
+  }
 }
 
 function getProjectName(dir) {
@@ -139,10 +153,17 @@ export async function initCommand() {
     mode = choice === 2 ? 'full' : 'consumer';
   }
 
-  // Step 4: Install skills
+  // Step 4: Determine skill installation root and install skills
+  const gitRoot = findGitRoot(cwd);
+  const skillRoot = gitRoot || cwd;
+  const skillRootDiffers = path.resolve(skillRoot) !== path.resolve(cwd);
+
   let warnings;
+  let skillsChanged;
   try {
-    warnings = installSkills(cwd, { mode });
+    const result = installSkills(skillRoot, { mode });
+    warnings = result.warnings;
+    skillsChanged = result.anyChanged;
   } catch (err) {
     console.error(`Error: Could not install skills: ${err.message}`);
     process.exit(1);
@@ -212,14 +233,28 @@ export async function initCommand() {
   }
 
   // Step 8: Print output
-  const isReInit = !manifestCreated;
-  const skillVerb = isReInit ? 'updated' : 'installed';
+  // Determine skill verb: 'installed' (fresh), 'updated' (content changed), 'up to date' (no change)
+  let skillVerb;
+  if (!skillRootDiffers && manifestCreated) {
+    // Fresh init at repo root — always 'installed'
+    skillVerb = 'installed';
+  } else if (skillsChanged) {
+    skillVerb = 'updated';
+  } else {
+    skillVerb = 'up to date';
+  }
+
+  const skillsUpToDate = skillVerb === 'up to date';
 
   if (mode === 'consumer') {
     console.log('Initialized OpenSDD (consumer):');
-    console.log(
-      '  Skills installed for: Claude Code, Codex CLI, Cursor, GitHub Copilot, Gemini CLI, Amp'
-    );
+    if (skillRootDiffers) {
+      console.log(`  Skills ${skillsUpToDate ? 'already installed' : 'installed'} at repo root (${skillRoot}):`);
+    } else {
+      console.log(
+        '  Skills installed for: Claude Code, Codex CLI, Cursor, GitHub Copilot, Gemini CLI, Amp'
+      );
+    }
     console.log(`    sdd-manager              ${skillVerb} (6 agent formats)`);
     console.log(
       `  opensdd.json               ${manifestCreated ? 'created' : 'already exists (preserved)'}`
@@ -228,9 +263,13 @@ export async function initCommand() {
   } else {
     const specsDir = manifest.specsDir || 'opensdd';
     console.log('Initialized OpenSDD:');
-    console.log(
-      '  Skills installed for: Claude Code, Codex CLI, Cursor, GitHub Copilot, Gemini CLI, Amp'
-    );
+    if (skillRootDiffers) {
+      console.log(`  Skills ${skillsUpToDate ? 'already installed' : 'installed'} at repo root (${skillRoot}):`);
+    } else {
+      console.log(
+        '  Skills installed for: Claude Code, Codex CLI, Cursor, GitHub Copilot, Gemini CLI, Amp'
+      );
+    }
     console.log(`    sdd-manager              ${skillVerb} (6 agent formats)`);
     console.log(`    sdd-generate             ${skillVerb} (6 agent formats)`);
     console.log(

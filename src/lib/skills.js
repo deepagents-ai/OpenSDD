@@ -48,6 +48,19 @@ function writeFileSync(filePath, content) {
 }
 
 /**
+ * Write a file only if content differs from existing. Returns true if the file was changed.
+ */
+function writeIfChanged(filePath, content) {
+  ensureDir(path.dirname(filePath));
+  if (fs.existsSync(filePath)) {
+    const existing = fs.readFileSync(filePath, 'utf-8');
+    if (existing === content) return false;
+  }
+  fs.writeFileSync(filePath, content);
+  return true;
+}
+
+/**
  * Update a managed section in a file (GEMINI.md or AGENTS.md).
  * Creates the file if it doesn't exist.
  * Only modifies the clearly delimited OpenSDD section.
@@ -224,32 +237,33 @@ export function installSkills(projectRoot, { mode = 'full' } = {}) {
   const skills = getSkillContent();
   const warnings = [];
   const isFull = mode === 'full';
+  let anyChanged = false;
 
   // 0. Always-on gate rule (Claude Code)
-  writeFileSync(
+  if (writeIfChanged(
     path.join(projectRoot, '.claude', 'rules', 'opensdd-gate.md'),
     GATE_TEXT + '\n'
-  );
+  )) anyChanged = true;
 
   // 1. Claude Code (critical — Gemini and Amp depend on this)
   const claudeBase = path.join(projectRoot, '.claude', 'skills');
-  writeFileSync(
+  if (writeIfChanged(
     path.join(claudeBase, 'sdd-manager', 'SKILL.md'),
     skills.sddManager
-  );
-  writeFileSync(
+  )) anyChanged = true;
+  if (writeIfChanged(
     path.join(claudeBase, 'sdd-manager', 'references', 'spec-format.md'),
     skills.specFormat
-  );
+  )) anyChanged = true;
   if (isFull) {
-    writeFileSync(
+    if (writeIfChanged(
       path.join(claudeBase, 'sdd-generate', 'SKILL.md'),
       skills.sddGenerate
-    );
-    writeFileSync(
+    )) anyChanged = true;
+    if (writeIfChanged(
       path.join(claudeBase, 'sdd-generate', 'references', 'spec-format.md'),
       skills.specFormat
-    );
+    )) anyChanged = true;
   }
 
   // 2. Codex CLI
@@ -380,5 +394,5 @@ ${generateBody}`;
     warnings.push(`Could not install Amp skills: ${err.message}`);
   }
 
-  return warnings;
+  return { warnings, anyChanged };
 }

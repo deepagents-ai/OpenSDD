@@ -42,10 +42,10 @@ Mode detection: presence of `specsDir` in `opensdd.json` = OpenSDD-driven. Absen
      1. Consumer only — install and implement dependency specs
      2. OpenSDD-driven — full SDD methodology (author specs, both skills)
    Create manifest accordingly.
-4. Install skills with the determined mode. In consumer mode, only `sdd-manager` is installed. In full mode, both `sdd-manager` and `sdd-generate` are installed. The full installation mapping is defined in the **Skill Installation Mapping** section below. If already present, overwrite — skills are always spec-owned.
+4. Determine the **skill installation root**: if the current directory is inside a git repository, use the git repository root. Otherwise, use the current working directory. Install skills at the skill installation root with the determined mode. In consumer mode, only `sdd-manager` is installed. In full mode, both `sdd-manager` and `sdd-generate` are installed. The full installation mapping is defined in the **Skill Installation Mapping** section below. If already present, overwrite — skills are always spec-owned. If the skill installation root differs from the current working directory, print the skill installation path in the output so the user knows where skills were installed.
 5. Create the `.opensdd.deps/` directory (or the directory specified by `depsDir` in an existing `opensdd.json`) if it does not exist. (Both modes.)
 6. If `mode === 'full'`:
-   a. If `opensdd.json` does not exist at the project root, create it with default contents: `{ "opensdd": "0.1.0", "specsDir": "opensdd", "depsDir": ".opensdd.deps" }`. The `registry`, `publish`, and `dependencies` fields are intentionally omitted from the default — they are optional. When `registry` is absent, the CLI defaults to `https://github.com/deepagents-ai/opensdd` per the registry source resolution logic. If `opensdd.json` already exists, leave it untouched.
+   a. If `opensdd.json` does not exist in the current working directory, create it with default contents: `{ "opensdd": "0.1.0", "specsDir": "opensdd", "depsDir": ".opensdd.deps" }`. The `registry`, `publish`, and `dependencies` fields are intentionally omitted from the default — they are optional. When `registry` is absent, the CLI defaults to `https://github.com/deepagents-ai/opensdd` per the registry source resolution logic. If `opensdd.json` already exists, leave it untouched.
    b. Create the `opensdd/` directory (or the directory specified by `specsDir` in the `opensdd.json`) if it does not exist.
    c. If `<specsDir>/spec.md` does not exist, create a skeleton `spec.md` with placeholder sections:
       ```markdown
@@ -66,7 +66,7 @@ Mode detection: presence of `specsDir` in `opensdd.json` = OpenSDD-driven. Absen
       <!-- List properties that must hold true across all inputs and states. -->
       ```
       The `{project-name}` placeholder SHOULD be inferred from the nearest project manifest (e.g., `name` in `package.json`) or default to the directory name. If `spec.md` already exists, leave it untouched.
-7. If `mode === 'consumer'`: create `opensdd.json` with consumer-only contents: `{ "opensdd": "0.1.0", "depsDir": ".opensdd.deps" }` (no `specsDir`). If `opensdd.json` already exists, leave it untouched.
+7. If `mode === 'consumer'`: create `opensdd.json` in the current working directory with consumer-only contents: `{ "opensdd": "0.1.0", "depsDir": ".opensdd.deps" }` (no `specsDir`). If `opensdd.json` already exists, leave it untouched.
 8. Print a success message.
 
 - `opensdd init` selecting OpenSDD-driven in a fresh project MUST produce the full output below
@@ -107,6 +107,30 @@ Initialized OpenSDD:
   opensdd/                   already exists
   opensdd/spec.md            already exists (preserved)
   .opensdd.deps/             already exists
+```
+
+OpenSDD-driven (monorepo sub-project, fresh):
+```
+Initialized OpenSDD:
+  Skills installed at repo root (/path/to/monorepo):
+    sdd-manager              installed (6 agent formats)
+    sdd-generate             installed (6 agent formats)
+  opensdd.json               created
+  opensdd/                   created
+  opensdd/spec.md            created (skeleton)
+  .opensdd.deps/             created
+```
+
+OpenSDD-driven (monorepo sub-project, skills already installed):
+```
+Initialized OpenSDD:
+  Skills already installed at repo root (/path/to/monorepo):
+    sdd-manager              up to date (6 agent formats)
+    sdd-generate             up to date (6 agent formats)
+  opensdd.json               created
+  opensdd/                   created
+  opensdd/spec.md            created (skeleton)
+  .opensdd.deps/             created
 ```
 
 #### Errors
@@ -687,7 +711,7 @@ Validation failed for slugify
 
 Commands that require `opensdd.json` (all commands except `opensdd list` and `opensdd validate`) MUST resolve it by searching upward from the current working directory, stopping at the first `opensdd.json` found. This supports monorepos where each sub-project has its own `opensdd.json`. If no `opensdd.json` is found in any ancestor directory, the command fails with the appropriate "not initialized" error.
 
-`opensdd init` always creates `opensdd.json` in the current working directory.
+`opensdd init` always creates `opensdd.json` in the current working directory. Skills are always installed at the git repository root (or the current working directory if not inside a git repository). This separation allows monorepo sub-projects to each have their own `opensdd.json` while sharing a single skill installation at the repo root.
 
 ### Registry Source Resolution
 
@@ -732,6 +756,9 @@ The CLI reads the existing `opensdd.json` dependency entry, applies updated meta
 - Publishing when the registry is a local path (not GitHub): reject with an error (publishing requires a GitHub registry for PR workflow).
 - Running `opensdd publish` when `gh` CLI is not installed: print error with installation guidance.
 - Running `opensdd install` with a version that doesn't exist in the registry: print error listing available versions.
+- Running `opensdd init` in a monorepo sub-project when skills are already installed at the repo root: compare installed skill content with the current version. If identical, print "up to date". If different, overwrite and print "updated". Always create the per-package manifest in the current directory.
+- Running `opensdd init` in a monorepo sub-project when no skills exist at the repo root: install skills at the repo root, create the per-package manifest in the current directory.
+- Running `opensdd init` at the repo root of a monorepo, then running it again in a sub-project: the second run detects skills at the repo root (updates if needed) and creates a new `opensdd.json` in the sub-project directory.
 
 ## NOT Specified (Implementation Freedom)
 
@@ -752,8 +779,8 @@ The CLI reads the existing `opensdd.json` dependency entry, applies updated meta
 - `opensdd update` MUST NOT modify `opensdd.json` — it only stages the update
 - `opensdd update` MUST create a staging directory in `.opensdd.deps/.updates/<name>/` for every spec that was updated (not for specs already up to date)
 - `opensdd update apply` MUST update `opensdd.json` and delete the staging directory
-- All skill installation files across all agent formats MUST always be overwritten on `opensdd init` (they are fully spec-owned)
-- The Claude Code skill installation (`.claude/skills/`) MUST always be present since Gemini CLI and Amp reference it
+- Skill installation files MUST always be installed at the git repository root (or cwd if no git root). They are fully spec-owned and overwritten on every `opensdd init`.
+- The Claude Code skill installation (`.claude/skills/`) at the skill installation root MUST always be present since Gemini CLI and Amp reference it
 - `opensdd.json` MUST be created by `opensdd init` if it does not exist, and MUST NOT be overwritten if it already exists
 - Consumer-managed `opensdd.json` fields MUST survive all update operations
 - Every default-mode dependency MUST have both a directory in `depsDir` and an entry in `opensdd.json` `dependencies`

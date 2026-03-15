@@ -239,7 +239,7 @@ describe('opensdd CLI', () => {
       // Re-init (manifest has specsDir, no prompt needed)
       const output = run('init');
       assert.match(output, /opensdd\.json\s+already exists \(preserved\)/);
-      assert.match(output, /updated \(6 agent formats\)/);
+      assert.match(output, /up to date \(6 agent formats\)/);
 
       // Verify opensdd.json preserved
       const updated = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
