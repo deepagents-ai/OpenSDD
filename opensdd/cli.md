@@ -559,8 +559,13 @@ Publishes an authored spec to the registry.
 #### Behavior
 
 1. Verify `opensdd.json` exists at the project root. If not, print a message suggesting `opensdd init` first and exit with code 1.
-2. Verify `opensdd.json` has a `publish` object. If not, print an error suggesting the user add a `publish` section and exit with code 1.
-3. Read the `publish` object to get `name`, `version`, `description`, `specFormat`, `dependencies`.
+2. Read the `publish` object from `opensdd.json` (may be absent or incomplete).
+3. For each required publish field (`name`, `version`, `description`, `specFormat`), if the field is missing or empty, prompt the user interactively:
+   - `name`: "Spec name (lowercase alphanumeric and hyphens): "
+   - `version`: "Version (semver, e.g. 1.0.0): "
+   - `description`: "Description: "
+   - `specFormat`: "Spec format version (e.g. 0.1.0): "
+   Only prompt for fields that are actually missing — if the `publish` section exists with some fields populated, prompt only for the remaining ones. After collecting all required fields, write the completed `publish` object back to `opensdd.json` (preserving all other manifest fields) before continuing.
 4. Verify `<specsDir>/spec.md` exists. If not, print error and exit with code 1.
 5. Run validation on the `<specsDir>/` directory (same logic as `opensdd validate`). If validation fails with errors, print them and exit with code 1.
 6. Resolve the registry source. The registry MUST be a GitHub repository URL for publishing.
@@ -600,7 +605,7 @@ Published. Spec will be available after PR is merged.
 #### Errors
 
 - OpenSDD not initialized: print message suggesting `opensdd init` and exit with code 1.
-- No `publish` section in `opensdd.json`: print error and exit with code 1.
+- User provides empty or invalid input for a required publish field: re-prompt for the same field. If the user sends EOF (Ctrl+D) or an interrupt (Ctrl+C), exit with code 1.
 - `<specsDir>/spec.md` missing: print error and exit with code 1.
 - Spec validation fails: print validation errors and exit with code 1.
 - Version already exists in registry: print error suggesting version bump and exit with code 1.
