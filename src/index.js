@@ -7,6 +7,7 @@ import { updateApplyCommand } from './commands/updateApply.js';
 import { publishCommand } from './commands/publish.js';
 import { statusCommand } from './commands/status.js';
 import { validateCommand } from './commands/validate.js';
+import { setupCiCommand } from './commands/setupCi.js';
 
 function parseArgs(argv) {
   const flags = {};
@@ -43,11 +44,15 @@ Commands:
   publish                 Publish an authored spec to the registry
   status                  Show status of authored and installed specs
   validate [path]         Validate a spec directory
+  setup-ci                Set up GitHub Actions CI for spec-driven implementation
 
 Options:
   --registry <url>        Alternative registry source
   --skill                 Install as an agent skill instead of a full spec
   --branch <name>         Branch name for publish PR
+  --force                 Overwrite existing files/secrets without prompting (setup-ci)
+  --dry-run               Print what would be done without making changes (setup-ci)
+  --skip-token            Skip Claude OAuth token step (setup-ci)
   --version               Show version
   --help                  Show help`);
 }
@@ -102,6 +107,16 @@ async function main() {
       case 'validate': {
         const { positional } = parseArgs(rawArgs.slice(1));
         await validateCommand(positional[0]);
+        break;
+      }
+
+      case 'setup-ci': {
+        const { flags } = parseArgs(rawArgs.slice(1));
+        await setupCiCommand({
+          force: flags.force === true,
+          dryRun: flags['dry-run'] === true,
+          skipToken: flags['skip-token'] === true,
+        });
         break;
       }
 

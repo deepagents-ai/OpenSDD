@@ -31,6 +31,8 @@ Initializes the OpenSDD protocol in the current project. Supports two modes:
 
 Mode detection: presence of `specsDir` in `opensdd.json` = OpenSDD-driven. Absence = consumer-only.
 
+After successful initialization in full mode, the CLI MUST prompt: "Would you like to set up CI-driven spec implementation? (opensdd setup-ci) [y/N]". If the user confirms, run the `setup-ci` command. In consumer mode, do NOT prompt (CI setup requires an authored spec workflow).
+
 #### Behavior
 
 1. Verify the current directory is a project root (contains `package.json`, `pyproject.toml`, `Cargo.toml`, `go.mod`, `.git`, `opensdd.json`, or similar project markers). If no project marker is found, warn the user and ask for confirmation to proceed.
@@ -707,6 +709,274 @@ Validation failed for slugify
 - Missing required file (`spec.md`): report as validation error (do not exit early — continue checking what can be checked).
 - `opensdd validate` MUST exit with code 0 if validation passes (including with warnings) and code 1 if any errors are found.
 
+### `opensdd setup-ci`
+
+Sets up GitHub Actions CI for the spec-driven Propose workflow. Automates the one-time repository configuration: GitHub labels, Claude Code OAuth token as a repo secret, and two GitHub Actions workflow files.
+
+#### Prerequisites
+
+- `gh` CLI installed and authenticated (`gh auth status` succeeds)
+- `claude` CLI installed (for token generation via `claude setup-ci`)
+- Current directory is inside a git repo with a GitHub remote
+- `opensdd.json` exists (run `opensdd init` first)
+
+#### Behavior
+
+1. **Validate environment.**
+   a. Verify `opensdd.json` exists (resolve via manifest resolution). If not, print "OpenSDD not initialized. Run `opensdd init` first." and exit with code 1.
+   b. Verify `gh` is installed by running `gh --version`. If not found, print "Error: GitHub CLI (gh) is required. Install it from https://cli.github.com" and exit with code 1.
+   c. Verify `gh` is authenticated by running `gh auth status`. If not authenticated, print "Error: GitHub CLI is not authenticated. Run `gh auth login` first." and exit with code 1.
+   d. Verify `claude` is installed by running `claude --version`. If not found AND `--skip-token` is not set, print "Error: Claude CLI is required for token setup. Install it or use --skip-token to skip." and exit with code 1.
+   e. Verify the current directory is inside a git repo with a GitHub remote. Resolve the GitHub owner/repo from the remote URL using `gh repo view --json nameWithOwner`. If no GitHub remote is found, print "Error: No GitHub remote found. Add a GitHub remote first." and exit with code 1.
+
+2. **Create GitHub labels.** Create the following labels using `gh label create`:
+
+   | Label | Color | Description |
+   |-------|-------|-------------|
+   | `spec` | `#0E8A16` | PR contains only spec changes |
+   | `implement-spec` | `#1D76DB` | Issue to be auto-implemented by Claude |
+
+   For each label, attempt creation. If the label already exists (`gh label create` exits with a non-zero code indicating it exists), skip and report as "already exists". The CLI MUST NOT fail if a label already exists.
+
+3. **Set up Claude Code OAuth token.** If `--skip-token` is set, skip this step and report "skipped (--skip-token)".
+   a. Run `claude setup-ci` to generate a token. Capture the output token.
+   b. Check if the secret `CLAUDE_CODE_OAUTH_TOKEN` already exists by running `gh secret list` and checking for the name. If it exists and `--force` is not set, prompt the user: "Secret CLAUDE_CODE_OAUTH_TOKEN already exists. Overwrite? (y/n)". If declined, skip and report "already exists (kept)".
+   c. Set the token as a GitHub repo secret via `gh secret set CLAUDE_CODE_OAUTH_TOKEN`.
+
+4. **Install GitHub Actions workflows.** Copy the two bundled workflow files into `.github/workflows/` (creating the directory if it does not exist):
+   - `spec-merged.yml` — Triggers on `spec`-labeled PR merge, creates an implementation issue with the `implement-spec` label
+   - `claude-implement.yml` — Triggers on `implement-spec` label on issues, runs `claude-code-action`
+
+   For each file: if the file already exists and `--force` is not set, prompt the user: "Workflow .github/workflows/{name} already exists. Overwrite? (y/n)". If declined, skip and report "already exists (kept)".
+
+   The workflow file contents MUST be bundled with the OpenSDD package (not fetched from a remote). They are embedded as string constants in the implementation module.
+
+5. **Print summary.**
+
+- `opensdd setup-ci` MUST validate all prerequisites before performing any mutations
+- `opensdd setup-ci` MUST be idempotent — safe to run multiple times without error
+- `opensdd setup-ci --dry-run` MUST NOT create labels, set secrets, or write files
+
+#### Input
+
+- `--force` (optional): Overwrite existing labels, secrets, and workflow files without prompting.
+- `--dry-run` (optional): Print what would be done without making any changes.
+- `--skip-token` (optional): Skip the Claude OAuth token step (for cases where the secret is managed externally, e.g., org-level secrets).
+
+#### Output
+
+```
+OpenSDD CI setup complete:
+  ✓ Label: spec                              created
+  ✓ Label: implement-spec                    created
+  ✓ Secret: CLAUDE_CODE_OAUTH_TOKEN          set
+  ✓ Workflow: .github/workflows/spec-merged.yml       installed
+  ✓ Workflow: .github/workflows/claude-implement.yml  installed
+
+You can now use the Propose workflow to submit specs for CI implementation.
+```
+
+When items are skipped:
+```
+OpenSDD CI setup complete:
+  ✓ Label: spec                              already exists
+  ✓ Label: implement-spec                    created
+  - Secret: CLAUDE_CODE_OAUTH_TOKEN          skipped (--skip-token)
+  ✓ Workflow: .github/workflows/spec-merged.yml       already exists (kept)
+  ✓ Workflow: .github/workflows/claude-implement.yml  installed
+
+You can now use the Propose workflow to submit specs for CI implementation.
+```
+
+Dry-run output:
+```
+OpenSDD CI setup (dry run):
+  Would create label: spec (#0E8A16)
+  Would create label: implement-spec (#1D76DB)
+  Would set secret: CLAUDE_CODE_OAUTH_TOKEN
+  Would install: .github/workflows/spec-merged.yml
+  Would install: .github/workflows/claude-implement.yml
+
+Run without --dry-run to apply.
+```
+
+#### Errors
+
+- OpenSDD not initialized: print message suggesting `opensdd init` and exit with code 1.
+- `gh` not installed: print error with install URL and exit with code 1.
+- `gh` not authenticated: print error suggesting `gh auth login` and exit with code 1.
+- `claude` not installed (without `--skip-token`): print error suggesting install or `--skip-token` and exit with code 1.
+- No GitHub remote: print error and exit with code 1.
+- `claude setup-ci` fails: print error with the stderr output and exit with code 1.
+- `gh secret set` fails: print error with the stderr output and exit with code 1.
+- `.github/workflows/` cannot be created (permissions): print error and exit with code 1.
+
+#### Workflow File Contents
+
+The two workflow files are bundled as string constants within the OpenSDD package. They MUST NOT be fetched from a remote at runtime.
+
+##### spec-merged.yml
+
+Triggers when a PR with the `spec` label is merged. Extracts the OpenSDD metadata block from the PR body, identifies the changed spec files, and creates a GitHub issue with the `implement-spec` label containing the implementation instructions.
+
+```yaml
+name: "OpenSDD: Spec Merged"
+
+on:
+  pull_request:
+    types: [closed]
+
+jobs:
+  create-implementation-issue:
+    if: github.event.pull_request.merged == true && contains(github.event.pull_request.labels.*.name, 'spec')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Extract OpenSDD metadata
+        id: metadata
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const body = context.payload.pull_request.body || '';
+            const match = body.match(/<!--\s*opensdd\n([\s\S]*?)-->/);
+            if (!match) {
+              core.setFailed('No OpenSDD metadata block found in PR body');
+              return;
+            }
+            const lines = match[1].trim().split('\n');
+            const metadata = {};
+            for (const line of lines) {
+              const [key, ...rest] = line.split(':');
+              metadata[key.trim()] = rest.join(':').trim();
+            }
+            core.setOutput('package-name', metadata['package-name'] || '');
+            core.setOutput('package-path', metadata['package-path'] || '');
+            core.setOutput('specs-dir', metadata['specs-dir'] || 'opensdd');
+
+      - name: Get changed spec files
+        id: changed-files
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const files = await github.rest.pulls.listFiles({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.payload.pull_request.number,
+              per_page: 100
+            });
+            const specFiles = files.data
+              .map(f => f.filename)
+              .filter(f => f.endsWith('.md') || f.endsWith('.sdd.md'));
+            core.setOutput('files', specFiles.join('\n'));
+
+      - name: Create implementation issue
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const packageName = '${{ steps.metadata.outputs.package-name }}';
+            const packagePath = '${{ steps.metadata.outputs.package-path }}';
+            const specsDir = '${{ steps.metadata.outputs.specs-dir }}';
+            const specFiles = `${{ steps.changed-files.outputs.files }}`;
+            const prNumber = context.payload.pull_request.number;
+            const prTitle = context.payload.pull_request.title;
+
+            const title = packagePath
+              ? `implement(${packageName}): ${prTitle.replace(/^spec(\([^)]*\))?:\s*/, '')}`
+              : `implement: ${prTitle.replace(/^spec:\s*/, '')}`;
+
+            const body = [
+              `## Spec Implementation`,
+              ``,
+              `Spec PR: #${prNumber}`,
+              `Package: \`${packageName}\``,
+              packagePath ? `Package path: \`${packagePath}\`` : '',
+              `Specs dir: \`${specsDir}\``,
+              ``,
+              `### Changed spec files`,
+              ``,
+              specFiles.split('\n').map(f => `- \`${f}\``).join('\n'),
+              ``,
+              `### Instructions`,
+              ``,
+              `Read the spec files listed above and run \`/sdd-manager implement\` to generate the implementation.`,
+              ``,
+              `<!-- opensdd`,
+              `package-name: ${packageName}`,
+              `package-path: ${packagePath}`,
+              `specs-dir: ${specsDir}`,
+              `spec-pr: ${prNumber}`,
+              `-->`,
+            ].filter(Boolean).join('\n');
+
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title,
+              body,
+              labels: ['implement-spec']
+            });
+```
+
+##### claude-implement.yml
+
+Triggers when an issue is labeled with `implement-spec`. Checks out the repo and runs `claude-code-action` to implement the spec.
+
+```yaml
+name: "OpenSDD: Implement Spec"
+
+on:
+  issues:
+    types: [labeled]
+
+jobs:
+  implement:
+    if: github.event.label.name == 'implement-spec'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Extract metadata
+        id: metadata
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const body = context.payload.issue.body || '';
+            const match = body.match(/<!--\s*opensdd\n([\s\S]*?)-->/);
+            if (!match) {
+              core.setFailed('No OpenSDD metadata block found in issue body');
+              return;
+            }
+            const lines = match[1].trim().split('\n');
+            const metadata = {};
+            for (const line of lines) {
+              const [key, ...rest] = line.split(':');
+              metadata[key.trim()] = rest.join(':').trim();
+            }
+            core.setOutput('package-name', metadata['package-name'] || '');
+            core.setOutput('package-path', metadata['package-path'] || '');
+            core.setOutput('specs-dir', metadata['specs-dir'] || 'opensdd');
+            core.setOutput('spec-pr', metadata['spec-pr'] || '');
+
+      - name: Implement with Claude
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          prompt: |
+            You are implementing a spec that was merged in PR #${{ steps.metadata.outputs.spec-pr }}.
+
+            Package: ${{ steps.metadata.outputs.package-name }}
+            Package path: ${{ steps.metadata.outputs.package-path }}
+            Specs dir: ${{ steps.metadata.outputs.specs-dir }}
+
+            Instructions:
+            1. Navigate to the package path (if set): cd ${{ steps.metadata.outputs.package-path || '.' }}
+            2. Read the spec files in the specs directory
+            3. Run /sdd-manager implement to generate the implementation
+            4. Create a PR with the implementation
+```
+
+These templates are canonical references. The CLI embeds them as string constants and writes them verbatim to `.github/workflows/`.
+
 ### Manifest Resolution
 
 Commands that require `opensdd.json` (all commands except `opensdd list` and `opensdd validate`) MUST resolve it by searching upward from the current working directory, stopping at the first `opensdd.json` found. This supports monorepos where each sub-project has its own `opensdd.json`. If no `opensdd.json` is found in any ancestor directory, the command fails with the appropriate "not initialized" error.
@@ -759,6 +1029,12 @@ The CLI reads the existing `opensdd.json` dependency entry, applies updated meta
 - Running `opensdd init` in a monorepo sub-project when skills are already installed at the repo root: compare installed skill content with the current version. If identical, print "up to date". If different, overwrite and print "updated". Always create the per-package manifest in the current directory.
 - Running `opensdd init` in a monorepo sub-project when no skills exist at the repo root: install skills at the repo root, create the per-package manifest in the current directory.
 - Running `opensdd init` at the repo root of a monorepo, then running it again in a sub-project: the second run detects skills at the repo root (updates if needed) and creates a new `opensdd.json` in the sub-project directory.
+- Running `opensdd setup-ci` in a repo that already has partial CI setup (some labels exist, workflows exist but secret is missing): each step checks independently and skips what already exists.
+- Running `opensdd setup-ci` when `gh` is installed but not authenticated: detect via `gh auth status` exit code and print a clear error before any mutations.
+- Running `opensdd setup-ci --dry-run`: no mutations are performed. Labels are not created, secrets are not set, files are not written. Only a summary of what would happen is printed.
+- Running `opensdd setup-ci --force`: all prompts for existing items are skipped; labels are re-created, secret is overwritten, workflow files are overwritten.
+- Running `opensdd setup-ci` with `--skip-token` and `claude` not installed: succeeds (claude is not required when token step is skipped).
+- Running `opensdd setup-ci` in a non-GitHub repo (e.g., GitLab remote): fails with "No GitHub remote found" error.
 
 ## NOT Specified (Implementation Freedom)
 
@@ -789,3 +1065,7 @@ The CLI reads the existing `opensdd.json` dependency entry, applies updated meta
 - The CLI MUST NOT invoke an AI model or coding agent
 - `opensdd publish` MUST NOT allow overwriting an existing version in the registry
 - `.opensdd.deps/` MUST be committed to the repo (NOT gitignored)
+- `opensdd setup-ci` MUST validate all prerequisites before performing any mutations
+- `opensdd setup-ci` MUST be idempotent — running it multiple times MUST NOT cause errors
+- `opensdd setup-ci --dry-run` MUST NOT create labels, set secrets, or write workflow files
+- The bundled workflow files MUST be embedded in the package, not fetched from a remote

@@ -1028,3 +1028,191 @@ describe('opensdd CLI', () => {
     });
   });
 });
+
+// ---- setup-ci tests (appended outside main describe) ----
+
+const SETUP_CI_PROJECT = path.join('/tmp', 'opensdd-test-setup-ci');
+
+function setupCiProject() {
+  fs.rmSync(SETUP_CI_PROJECT, { recursive: true, force: true });
+  fs.mkdirSync(SETUP_CI_PROJECT, { recursive: true });
+  execSync('git init', { cwd: SETUP_CI_PROJECT, stdio: 'ignore' });
+  execSync('git remote add origin git@github.com:deepagents-ai/OpenSDD.git', {
+    cwd: SETUP_CI_PROJECT,
+    stdio: 'ignore',
+  });
+  fs.writeFileSync(
+    path.join(SETUP_CI_PROJECT, 'package.json'),
+    JSON.stringify({ name: 'ci-test-app' })
+  );
+  // Initialize opensdd (full mode)
+  execSync(`node ${CLI} init`, {
+    cwd: SETUP_CI_PROJECT,
+    encoding: 'utf-8',
+    input: '2\nn\n',
+    timeout: 15000,
+  });
+}
+
+function runCi(args, opts = {}) {
+  try {
+    return execSync(`node ${CLI} ${args}`, {
+      cwd: SETUP_CI_PROJECT,
+      encoding: 'utf-8',
+      env: { ...process.env, ...opts.env },
+      input: opts.input,
+      timeout: 15000,
+    });
+  } catch (err) {
+    if (opts.expectError) {
+      return { stderr: err.stderr, stdout: err.stdout, exitCode: err.status };
+    }
+    throw err;
+  }
+}
+
+describe('opensdd setup-ci', () => {
+  after(() => {
+    fs.rmSync(SETUP_CI_PROJECT, { recursive: true, force: true });
+  });
+
+  describe('command registration', () => {
+    it('should include setup-ci in --help output', () => {
+      const output = execSync(`node ${CLI} --help`, {
+        encoding: 'utf-8',
+        cwd: '/tmp',
+      });
+      assert.match(output, /setup-ci/);
+      assert.match(output, /Set up GitHub Actions CI/);
+    });
+  });
+
+  describe('prerequisite validation', () => {
+    it('should fail when opensdd.json is missing', () => {
+      const bareDir = path.join('/tmp', 'opensdd-test-bare-ci');
+      fs.rmSync(bareDir, { recursive: true, force: true });
+      fs.mkdirSync(bareDir, { recursive: true });
+      execSync('git init', { cwd: bareDir, stdio: 'ignore' });
+
+      const result = (() => {
+        try {
+          return execSync(`node ${CLI} setup-ci --dry-run --skip-token`, {
+            cwd: bareDir,
+            encoding: 'utf-8',
+            timeout: 15000,
+          });
+        } catch (err) {
+          return { stderr: err.stderr, stdout: err.stdout, exitCode: err.status };
+        }
+      })();
+
+      assert.ok(result.stderr || result.exitCode);
+      assert.match(result.stderr, /not initialized/i);
+      assert.equal(result.exitCode, 1);
+
+      fs.rmSync(bareDir, { recursive: true, force: true });
+    });
+  });
+
+  describe('--dry-run --skip-token', () => {
+    before(() => {
+      setupCiProject();
+    });
+
+    it('should print dry-run output and create no files', () => {
+      const output = runCi('setup-ci --dry-run --skip-token');
+
+      // Verify dry-run summary lines
+      assert.match(output, /dry run/i);
+      assert.match(output, /Would create label: spec/);
+      assert.match(output, /Would create label: implement-spec/);
+      assert.match(output, /Would skip secret.*--skip-token/);
+      assert.match(output, /Would install:.*spec-merged\.yml/);
+      assert.match(output, /Would install:.*claude-implement\.yml/);
+      assert.match(output, /Run without --dry-run to apply/);
+
+      // Verify no workflow files were created
+      assert.ok(
+        !fs.existsSync(
+          path.join(SETUP_CI_PROJECT, '.github', 'workflows', 'spec-merged.yml')
+        )
+      );
+      assert.ok(
+        !fs.existsSync(
+          path.join(SETUP_CI_PROJECT, '.github', 'workflows', 'claude-implement.yml')
+        )
+      );
+    });
+  });
+
+  describe('--dry-run (without --skip-token)', () => {
+    before(() => {
+      setupCiProject();
+    });
+
+    it('should show would-set-secret line', () => {
+      const output = runCi('setup-ci --dry-run');
+
+      assert.match(output, /dry run/i);
+      assert.match(output, /Would set secret: CLAUDE_CODE_OAUTH_TOKEN/);
+
+      // Still no files created
+      assert.ok(
+        !fs.existsSync(
+          path.join(SETUP_CI_PROJECT, '.github', 'workflows', 'spec-merged.yml')
+        )
+      );
+    });
+  });
+
+  describe('--force --skip-token (workflow installation)', () => {
+    beforeEach(() => {
+      setupCiProject();
+    });
+
+    it('should create workflow files in .github/workflows/', () => {
+      const output = runCi('setup-ci --force --skip-token');
+
+      assert.match(output, /CI setup complete/i);
+
+      // Verify both workflow files exist
+      const specMerged = path.join(
+        SETUP_CI_PROJECT, '.github', 'workflows', 'spec-merged.yml'
+      );
+      const claudeImplement = path.join(
+        SETUP_CI_PROJECT, '.github', 'workflows', 'claude-implement.yml'
+      );
+      assert.ok(fs.existsSync(specMerged));
+      assert.ok(fs.existsSync(claudeImplement));
+
+      // Verify content is valid YAML-like (starts with name:)
+      const specMergedContent = fs.readFileSync(specMerged, 'utf-8');
+      assert.match(specMergedContent, /^name:/);
+      assert.match(specMergedContent, /OpenSDD.*Spec Merged/);
+
+      const claudeContent = fs.readFileSync(claudeImplement, 'utf-8');
+      assert.match(claudeContent, /^name:/);
+      assert.match(claudeContent, /OpenSDD.*Implement Spec/);
+    });
+
+    it('should be idempotent — running twice does not error', () => {
+      runCi('setup-ci --force --skip-token');
+      const output = runCi('setup-ci --force --skip-token');
+
+      // Second run should also succeed
+      assert.match(output, /CI setup complete/i);
+
+      // Files still exist
+      assert.ok(
+        fs.existsSync(
+          path.join(SETUP_CI_PROJECT, '.github', 'workflows', 'spec-merged.yml')
+        )
+      );
+      assert.ok(
+        fs.existsSync(
+          path.join(SETUP_CI_PROJECT, '.github', 'workflows', 'claude-implement.yml')
+        )
+      );
+    });
+  });
+});

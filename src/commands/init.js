@@ -3,6 +3,7 @@ import path from 'node:path';
 import { execSync } from 'node:child_process';
 import readline from 'node:readline';
 import { installSkills } from '../lib/skills.js';
+import { setupCiCommand } from './setupCi.js';
 
 const PROJECT_MARKERS = [
   'package.json',
@@ -280,5 +281,14 @@ export async function initCommand() {
       `  ${specsDir}/spec.md            ${specMdCreated ? 'created (skeleton)' : 'already exists (preserved)'}`
     );
     console.log(`  ${depsDir}/             ${depsDirCreated ? 'created' : 'already exists'}`);
+
+    // Prompt for CI setup in full mode
+    const setupCi = await promptYN(
+      '\nWould you like to set up CI-driven spec implementation? (opensdd setup-ci) [y/N] '
+    );
+    if (setupCi) {
+      console.log('');
+      await setupCiCommand();
+    }
   }
 }
