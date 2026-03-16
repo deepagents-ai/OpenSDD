@@ -120,33 +120,45 @@ Determine affected spec section → classify type → create/append to `deviatio
 
 ### Propose
 
-For submitting spec changes as a PR so that implementation happens in CI (via GitHub Actions and `claude-code-action`) rather than locally. This keeps the developer's working tree clean — spec authoring happens locally, but implementation happens in CI.
+The async, PR-driven counterpart to Revise. The agent drafts spec changes the same way as Revise, but instead of asking the user for approval in the CLI and implementing locally, it opens a PR — the PR review is the approval gate, and implementation happens in CI after merge.
 
-1. **Resolve scope.** Resolve the nearest `opensdd.json` from the current working directory. All subsequent steps operate relative to the directory containing this manifest (the **package root**). Determine the **package name** from: `opensdd.json` `name` field, falling back to `publish.name`, falling back to the package root directory name. Determine the **package path** as the relative path from the git repository root to the package root (empty string for repo-root projects).
+The agent MUST execute all steps end-to-end without pausing for user confirmation. The Propose workflow is a single uninterrupted flow from understanding the request through PR creation — the agent MUST NOT stop to ask the user whether to proceed at any intermediate step. The PR itself is the review mechanism.
 
-2. **Identify spec changes.** Scan the working tree for modified or new spec files within `<specsDir>/` relative to the package root (check both staged and unstaged changes, as well as untracked files). Also check for modified or new `.sdd.md` files within the package root. If no spec changes are found, inform the user and suggest they author or revise a spec first using the Revise workflow. Do NOT proceed without spec changes.
+1. **Understand the request.** Read the user's description of the desired behavior change. Read the current spec from `<specsDir>/` (`spec.md` and any supplementary files). This is the same as Revise step 1.
 
-3. **Create a feature branch.** Create a new branch from the current branch. The naming convention depends on whether the project is a monorepo (non-empty package path): monorepo projects use `spec/<package-name>/<spec-name>`, repo-root projects use `spec/<spec-name>`. The `<spec-name>` is derived from the primary spec filename or the changeset rationale. If a branch with that name already exists, prompt the user for a suffix or alternative name.
+2. **Draft changeset.** Write a changeset to `<specsDir>/.changes/changeset.md` containing:
+   - **Rationale:** Why this change is being made — the user's request, the problem it solves, and any design decisions.
+   - **Changed Files:** For each spec file being modified, a unified diff showing the proposed changes. For new sections being added, show the full proposed content as an addition.
 
-4. **Stage spec files only.** Stage only the spec files within `<specsDir>/` and any `.sdd.md` files within the package root, plus any related spec assets (e.g., supplementary files referenced by the spec). The agent MUST NOT stage implementation files, test files, or other non-spec changes. If the working tree has non-spec changes, leave them unstaged.
+   The changeset MUST be persisted to disk (not kept in conversation context) so it survives context window clears. The agent MUST NOT modify spec files or implementation code during this step. This is the same as Revise step 2.
 
-5. **Commit.** Commit the staged spec files with a conventional commit message:
+3. **Apply to spec.** Apply the diffs from the changeset to the spec files. Delete `<specsDir>/.changes/` after successful application. Unlike Revise, there is no CLI approval gate — the PR serves as the review mechanism.
+
+4. **Resolve scope.** Resolve the nearest `opensdd.json` from the current working directory. All subsequent steps operate relative to the directory containing this manifest (the **package root**). Determine the **package name** from: `opensdd.json` `name` field, falling back to `publish.name`, falling back to the package root directory name. Determine the **package path** as the relative path from the git repository root to the package root (empty string for repo-root projects).
+
+5. **Create a feature branch.** Create a new branch from the current branch. The naming convention depends on whether the project is a monorepo (non-empty package path): monorepo projects use `opensdd/<package-name>/<spec-name>`, repo-root projects use `opensdd/<spec-name>`. The `<spec-name>` is derived from the primary spec filename or the changeset rationale. If a branch with that name already exists, prompt the user for a suffix or alternative name.
+
+6. **Stage spec files only.** Stage only the spec files within `<specsDir>/` and any `.sdd.md` files within the package root, plus any related spec assets (e.g., supplementary files referenced by the spec). The agent MUST NOT stage implementation files, test files, or other non-spec changes. If the working tree has non-spec changes, leave them unstaged.
+
+7. **Commit.** Commit the staged spec files with a conventional commit message:
    ```
    spec(<package-name>): <brief description of the spec change>
    ```
    For repo-root projects (empty package path), omit the scope: `spec: <brief description>`. The agent SHOULD derive the description from the spec content or filenames.
 
-6. **Push.** Push the feature branch to the remote.
+8. **Push.** Push the feature branch to the remote.
 
-7. **Create PR.** Create a pull request targeting the base branch:
+9. **Create PR.** Create a pull request targeting the base branch:
    - **Title:** `spec(<package-name>): <brief description>` (or `spec: <brief description>` for repo-root projects)
    - **Labels:** `spec`
-   - **Body:** Include a summary of the spec changes, a note explaining that merging this PR will trigger auto-implementation via GitHub Actions, and an **OpenSDD metadata block** (see spec-format.md "PR Metadata Block" section) that encodes the package name and path for CI consumption.
+   - **Body:** Include the changeset rationale, a summary of the spec changes, a note explaining that merging this PR will trigger auto-implementation via GitHub Actions, and an **OpenSDD metadata block** (see spec-format.md "PR Metadata Block" section) that encodes the package name and path for CI consumption.
 
-8. **Confirm.** Output the PR URL and explain to the user that:
-   - Merging the PR will automatically create an implementation issue
-   - `claude-code-action` will pick up the issue and open an implementation PR
-   - No local implementation work is needed — the CI pipeline handles it
+10. **Clean up local state.** Switch the local working tree back to the branch that was active before the Propose workflow started (typically `main`). This ensures the developer's local state is clean and not left on the spec branch.
+
+11. **Confirm.** Output the PR URL and explain to the user that:
+    - Merging the PR will automatically create an implementation issue
+    - `claude-code-action` will pick up the issue and open an implementation PR
+    - No local implementation work is needed — the CI pipeline handles it
 
 ## Universal Implementation Defaults
 
