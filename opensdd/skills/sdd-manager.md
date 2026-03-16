@@ -121,6 +121,8 @@ Determine affected spec section → classify type → create/append to `deviatio
 
 For submitting spec changes as a PR so that implementation happens in CI (via GitHub Actions and `claude-code-action`) rather than locally. This keeps the developer's working tree clean — spec authoring happens locally, but implementation happens in CI.
 
+The agent MUST execute all steps end-to-end without pausing for user confirmation. The Propose workflow is a single uninterrupted flow from scope resolution through PR creation — the agent MUST NOT stop to ask the user whether to proceed at any intermediate step.
+
 1. **Resolve scope.** Resolve the nearest `opensdd.json` from the current working directory. All subsequent steps operate relative to the directory containing this manifest (the **package root**). Determine the **package name** from: `opensdd.json` `name` field, falling back to `publish.name`, falling back to the package root directory name. Determine the **package path** as the relative path from the git repository root to the package root (empty string for repo-root projects).
 
 2. **Identify spec changes.** Scan the working tree for modified or new spec files within `<specsDir>/` relative to the package root (check both staged and unstaged changes, as well as untracked files). Also check for modified or new `.sdd.md` files within the package root. If no spec changes are found, inform the user and suggest they author or revise a spec first using the Revise workflow. Do NOT proceed without spec changes.
