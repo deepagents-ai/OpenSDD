@@ -58,6 +58,7 @@ on:
 permissions:
   contents: read
   issues: write
+  id-token: write
 
 jobs:
   create-implementation-issue:
@@ -184,6 +185,7 @@ permissions:
   contents: write
   pull-requests: write
   issues: write
+  id-token: write
 
 jobs:
   implement:
