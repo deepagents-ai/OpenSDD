@@ -230,7 +230,7 @@ In a monorepo, the sdd-manager Propose workflow creates spec-only PRs scoped to 
 
 **Package identity resolution:** The package name is resolved from `opensdd.json` `name`, falling back to `publish.name`, falling back to the directory name containing `opensdd.json`. The package path is the relative path from the git repository root to the directory containing `opensdd.json` (empty string for repo-root projects).
 
-**Branch naming:** Monorepo projects use `spec/<package-name>/<spec-name>`. Repo-root projects use `spec/<spec-name>`.
+**Branch naming:** Monorepo projects use `opensdd/<package-name>/<spec-name>`. Repo-root projects use `opensdd/<spec-name>`.
 
 **Commit messages:** Monorepo projects use `spec(<package-name>): <description>`. Repo-root projects use `spec: <description>`.
 

@@ -85,10 +85,19 @@ jobs:
               `-->`,
             ].filter(Boolean).join('\n');
 
-            await github.rest.issues.create({
+            // Create issue without labels first, then add the label
+            // separately so the 'labeled' event fires and triggers
+            // the claude-implement workflow.
+            const issue = await github.rest.issues.create({
               owner: context.repo.owner,
               repo: context.repo.repo,
               title,
               body,
+            });
+
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issue.data.number,
               labels: ['implement-spec']
             });
