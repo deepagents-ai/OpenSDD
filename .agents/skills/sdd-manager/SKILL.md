@@ -121,26 +121,28 @@ Determine affected spec section → classify type → create/append to `deviatio
 
 For submitting spec changes as a PR so that implementation happens in CI (via GitHub Actions and `claude-code-action`) rather than locally. This keeps the developer's working tree clean — spec authoring happens locally, but implementation happens in CI.
 
-1. **Identify spec changes.** Scan the working tree for modified or new `.sdd.md` files (check both staged and unstaged changes, as well as untracked files in `<specsDir>/`). If no spec changes are found, inform the user and suggest they author or revise a spec first using the Revise workflow. Do NOT proceed without spec changes.
+1. **Resolve scope.** Resolve the nearest `opensdd.json` from the current working directory. All subsequent steps operate relative to the directory containing this manifest (the **package root**). Determine the **package name** from: `opensdd.json` `name` field, falling back to `publish.name`, falling back to the package root directory name. Determine the **package path** as the relative path from the git repository root to the package root (empty string for repo-root projects).
 
-2. **Create a feature branch.** Create a new branch from the current branch with the naming convention `spec/<spec-name>`, where `<spec-name>` is derived from the primary spec filename (e.g., `spec/auth-flow` from `auth-flow.sdd.md`). If a branch with that name already exists, prompt the user for a suffix or alternative name.
+2. **Identify spec changes.** Scan the working tree for modified or new spec files within `<specsDir>/` relative to the package root (check both staged and unstaged changes, as well as untracked files). Also check for modified or new `.sdd.md` files within the package root. If no spec changes are found, inform the user and suggest they author or revise a spec first using the Revise workflow. Do NOT proceed without spec changes.
 
-3. **Stage spec files only.** Stage only the `.sdd.md` files and any related spec assets (e.g., supplementary files referenced by the spec). The agent MUST NOT stage implementation files, test files, or other non-spec changes. If the working tree has non-spec changes, leave them unstaged.
+3. **Create a feature branch.** Create a new branch from the current branch. The naming convention depends on whether the project is a monorepo (non-empty package path): monorepo projects use `spec/<package-name>/<spec-name>`, repo-root projects use `spec/<spec-name>`. The `<spec-name>` is derived from the primary spec filename or the changeset rationale. If a branch with that name already exists, prompt the user for a suffix or alternative name.
 
-4. **Commit.** Commit the staged spec files with a conventional commit message:
+4. **Stage spec files only.** Stage only the spec files within `<specsDir>/` and any `.sdd.md` files within the package root, plus any related spec assets (e.g., supplementary files referenced by the spec). The agent MUST NOT stage implementation files, test files, or other non-spec changes. If the working tree has non-spec changes, leave them unstaged.
+
+5. **Commit.** Commit the staged spec files with a conventional commit message:
    ```
-   spec: <brief description of the spec change>
+   spec(<package-name>): <brief description of the spec change>
    ```
-   The agent SHOULD derive the description from the spec content or filenames.
+   For repo-root projects (empty package path), omit the scope: `spec: <brief description>`. The agent SHOULD derive the description from the spec content or filenames.
 
-5. **Push.** Push the feature branch to the remote.
+6. **Push.** Push the feature branch to the remote.
 
-6. **Create PR.** Create a pull request targeting the base branch:
-   - **Title:** `spec: <brief description>`
+7. **Create PR.** Create a pull request targeting the base branch:
+   - **Title:** `spec(<package-name>): <brief description>` (or `spec: <brief description>` for repo-root projects)
    - **Labels:** `spec`
-   - **Body:** Include a summary of the spec changes and a note explaining that merging this PR will trigger auto-implementation via GitHub Actions.
+   - **Body:** Include a summary of the spec changes, a note explaining that merging this PR will trigger auto-implementation via GitHub Actions, and an **OpenSDD metadata block** (see spec-format.md "PR Metadata Block" section) that encodes the package name and path for CI consumption.
 
-7. **Confirm.** Output the PR URL and explain to the user that:
+8. **Confirm.** Output the PR URL and explain to the user that:
    - Merging the PR will automatically create an implementation issue
    - `claude-code-action` will pick up the issue and open an implementation PR
    - No local implementation work is needed — the CI pipeline handles it

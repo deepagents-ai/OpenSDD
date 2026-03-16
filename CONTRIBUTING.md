@@ -36,8 +36,6 @@ OpenSDD specs govern OpenSDD's own development. The specs live in the `opensdd/`
 | `opensdd/skills/sdd-generate.md` | sdd-generate skill spec |
 | `opensdd/spec-format.md` | Spec format spec |
 
-Run `opensdd init` to bootstrap the agent skills if you have not already done so.
-
 ### Code Changes
 
 When changing implementation without altering behavior:

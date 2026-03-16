@@ -228,6 +228,44 @@ my-monorepo/
 
 The CLI resolves `opensdd.json` by searching upward from the current working directory, similar to how npm resolves `package.json`. Each sub-project is independent — it has its own authored spec, its own dependencies, and its own publish configuration.
 
+#### Monorepo and the Propose Workflow
+
+In a monorepo, the sdd-manager Propose workflow creates spec-only PRs scoped to a single package. The workflow resolves scope from the nearest `opensdd.json` and encodes the package context into the branch name, commit message, and PR metadata so that CI tooling knows where to implement.
+
+**Package identity resolution:** The package name is resolved from `opensdd.json` `name`, falling back to `publish.name`, falling back to the directory name containing `opensdd.json`. The package path is the relative path from the git repository root to the directory containing `opensdd.json` (empty string for repo-root projects).
+
+**Branch naming:** Monorepo projects use `spec/<package-name>/<spec-name>`. Repo-root projects use `spec/<spec-name>`.
+
+**Commit messages:** Monorepo projects use `spec(<package-name>): <description>`. Repo-root projects use `spec: <description>`.
+
+### PR Metadata Block
+
+Spec-only PRs created by the Propose workflow MUST include a machine-readable metadata block in the PR body. This block allows CI tooling (e.g., GitHub Actions, `claude-code-action`) to determine which package to implement against without parsing branch names or file paths.
+
+The metadata block is an HTML comment with YAML content:
+
+```
+<!-- opensdd
+package-name: auth
+package-path: packages/auth
+specs-dir: opensdd
+-->
+```
+
+Fields:
+- `package-name` (required): The resolved package name.
+- `package-path` (required): Relative path from the repo root to the package root. Empty string for repo-root projects.
+- `specs-dir` (required): The `specsDir` value from `opensdd.json`, so CI knows where the spec files live relative to the package root.
+
+For repo-root projects, the block is:
+```
+<!-- opensdd
+package-name: my-project
+package-path: ""
+specs-dir: opensdd
+-->
+```
+
 #### Spec-first development
 
 The development methodology for an OpenSDD-compliant repo:
@@ -260,6 +298,7 @@ The `opensdd.json` file is the project-level manifest. It lives at the project r
 ```json
 {
   "opensdd": "0.1.0",
+  "name": "auth",
   "registry": "https://github.com/deepagents-ai/opensdd",
   "specsDir": "opensdd",
   "depsDir": ".opensdd.deps",
@@ -286,6 +325,7 @@ The `opensdd.json` file is the project-level manifest. It lives at the project r
 #### Top-level fields
 
 - `opensdd` (required): Protocol version string. Agents and the CLI MUST use this to determine how to interpret the manifest.
+- `name` (optional): Human-readable package name for this project. Used by the Propose workflow for branch naming and PR metadata in monorepo contexts. If omitted, falls back to `publish.name`, then to the directory name. Lowercase alphanumeric and hyphens only.
 - `registry` (optional): URL of the default registry. Overridden by the CLI's `--registry` flag. Default: `"https://github.com/deepagents-ai/opensdd"`.
 - `specsDir` (optional): Relative path from the project root to the directory containing the authored spec. Default: `"opensdd"`.
 - `depsDir` (optional): Relative path from the project root to the directory containing installed dependency specs. Default: `".opensdd.deps"`.
