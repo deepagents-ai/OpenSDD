@@ -1022,7 +1022,7 @@ jobs:
       - name: Implement with Claude
         uses: anthropics/claude-code-action@v1
         with:
-          anthropic_api_key: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           prompt: |
             You are implementing a spec that was merged in PR #${{ steps.metadata.outputs.spec-pr }}.
 
@@ -1048,7 +1048,7 @@ jobs:
       - name: Respond with Claude
         uses: anthropics/claude-code-action@v1
         with:
-          anthropic_api_key: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
 ```
 
 These templates are canonical references. The CLI embeds them as string constants and writes them verbatim to `.github/workflows/`.
