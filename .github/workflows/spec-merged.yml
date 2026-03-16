@@ -1,0 +1,94 @@
+name: "OpenSDD: Spec Merged"
+
+on:
+  pull_request:
+    types: [closed]
+
+jobs:
+  create-implementation-issue:
+    if: github.event.pull_request.merged == true && contains(github.event.pull_request.labels.*.name, 'spec')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Extract OpenSDD metadata
+        id: metadata
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const body = context.payload.pull_request.body || '';
+            const match = body.match(/<!--\s*opensdd\n([\s\S]*?)-->/);
+            if (!match) {
+              core.setFailed('No OpenSDD metadata block found in PR body');
+              return;
+            }
+            const lines = match[1].trim().split('\n');
+            const metadata = {};
+            for (const line of lines) {
+              const [key, ...rest] = line.split(':');
+              metadata[key.trim()] = rest.join(':').trim();
+            }
+            core.setOutput('package-name', metadata['package-name'] || '');
+            core.setOutput('package-path', metadata['package-path'] || '');
+            core.setOutput('specs-dir', metadata['specs-dir'] || 'opensdd');
+
+      - name: Get changed spec files
+        id: changed-files
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const files = await github.rest.pulls.listFiles({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.payload.pull_request.number,
+              per_page: 100
+            });
+            const specFiles = files.data
+              .map(f => f.filename)
+              .filter(f => f.endsWith('.md') || f.endsWith('.sdd.md'));
+            core.setOutput('files', specFiles.join('\n'));
+
+      - name: Create implementation issue
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const packageName = '${{ steps.metadata.outputs.package-name }}';
+            const packagePath = '${{ steps.metadata.outputs.package-path }}';
+            const specsDir = '${{ steps.metadata.outputs.specs-dir }}';
+            const specFiles = `${{ steps.changed-files.outputs.files }}`;
+            const prNumber = context.payload.pull_request.number;
+            const prTitle = context.payload.pull_request.title;
+
+            const title = packagePath
+              ? `implement(${packageName}): ${prTitle.replace(/^spec(\([^)]*\))?:\s*/, '')}`
+              : `implement: ${prTitle.replace(/^spec:\s*/, '')}`;
+
+            const body = [
+              `## Spec Implementation`,
+              ``,
+              `Spec PR: #${prNumber}`,
+              `Package: \`${packageName}\``,
+              packagePath ? `Package path: \`${packagePath}\`` : '',
+              `Specs dir: \`${specsDir}\``,
+              ``,
+              `### Changed spec files`,
+              ``,
+              specFiles.split('\n').map(f => `- \`${f}\``).join('\n'),
+              ``,
+              `### Instructions`,
+              ``,
+              `Read the spec files listed above and run \`/sdd-manager implement\` to generate the implementation.`,
+              ``,
+              `<!-- opensdd`,
+              `package-name: ${packageName}`,
+              `package-path: ${packagePath}`,
+              `specs-dir: ${specsDir}`,
+              `spec-pr: ${prNumber}`,
+              `-->`,
+            ].filter(Boolean).join('\n');
+
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title,
+              body,
+              labels: ['implement-spec']
+            });

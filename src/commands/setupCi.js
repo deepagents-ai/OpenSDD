@@ -208,25 +208,34 @@ export async function setupCiCommand({ force = false, dryRun = false, skipToken 
   const results = [];
 
   // Step 1: Validate environment
+  console.log('Setting up OpenSDD CI...\n');
+  console.log('Checking prerequisites...');
+
   const manifestPath = findManifestPath(process.cwd());
   if (!manifestPath) {
     console.error('Error: OpenSDD not initialized. Run `opensdd init` first.');
     process.exit(1);
   }
+  console.log('  opensdd.json             found');
 
   if (!commandExists('gh')) {
     console.error('Error: GitHub CLI (gh) is required. Install it from https://cli.github.com');
     process.exit(1);
   }
+  console.log('  gh CLI                   found');
 
   if (!ghAuthStatus()) {
     console.error('Error: GitHub CLI is not authenticated. Run `gh auth login` first.');
     process.exit(1);
   }
+  console.log('  gh auth                  authenticated');
 
   if (!skipToken && !commandExists('claude')) {
     console.error('Error: Claude CLI is required for token setup. Install it or use --skip-token to skip.');
     process.exit(1);
+  }
+  if (!skipToken) {
+    console.log('  claude CLI               found');
   }
 
   const repo = getGitHubRepo();
@@ -234,6 +243,9 @@ export async function setupCiCommand({ force = false, dryRun = false, skipToken 
     console.error('Error: No GitHub remote found. Add a GitHub remote first.');
     process.exit(1);
   }
+  console.log(`  GitHub remote            ${repo}`);
+
+  console.log('');
 
   // Dry-run mode
   if (dryRun) {
@@ -254,6 +266,7 @@ export async function setupCiCommand({ force = false, dryRun = false, skipToken 
   }
 
   // Step 2: Create GitHub labels
+  console.log('Creating labels...');
   for (const label of LABELS) {
     try {
       execSync(
@@ -261,10 +274,12 @@ export async function setupCiCommand({ force = false, dryRun = false, skipToken 
         { stdio: ['pipe', 'pipe', 'pipe'] }
       );
       results.push({ item: `Label: ${label.name}`, status: 'created', ok: true });
+      console.log(`  ${label.name}            created`);
     } catch (err) {
       const stderr = err.stderr ? err.stderr.toString() : '';
       if (stderr.includes('already exists')) {
         results.push({ item: `Label: ${label.name}`, status: 'already exists', ok: true });
+        console.log(`  ${label.name}            already exists`);
       } else {
         console.error(`Error: Failed to create label "${label.name}": ${stderr || err.message}`);
         process.exit(1);
@@ -275,7 +290,9 @@ export async function setupCiCommand({ force = false, dryRun = false, skipToken 
   // Step 3: Set up Claude Code OAuth token
   if (skipToken) {
     results.push({ item: 'Secret: CLAUDE_CODE_OAUTH_TOKEN', status: 'skipped (--skip-token)', ok: false });
+    console.log('Skipping token setup (--skip-token)');
   } else {
+    console.log('Setting up Claude Code OAuth token...');
     // Check if secret already exists
     let secretExists = false;
     try {
@@ -294,17 +311,25 @@ export async function setupCiCommand({ force = false, dryRun = false, skipToken 
     }
 
     if (shouldSet) {
-      // Run claude setup-ci to get the token
+      // Run claude setup-token interactively — it needs a TTY for the OAuth flow.
+      // stdout is captured to extract the token; stdin/stderr are inherited for user interaction.
       let token;
+      console.log('  Running claude setup-token (follow the prompts)...');
       try {
-        token = execSync('claude setup-ci', { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }).trim();
+        token = execSync('claude setup-token', { encoding: 'utf-8', stdio: ['inherit', 'pipe', 'inherit'] }).trim();
       } catch (err) {
         const stderr = err.stderr ? err.stderr.toString() : err.message;
-        console.error(`Error: claude setup-ci failed: ${stderr}`);
+        console.error(`Error: claude setup-token failed: ${stderr}`);
+        process.exit(1);
+      }
+
+      if (!token) {
+        console.error('Error: claude setup-token did not produce a token. Run it manually and use --skip-token.');
         process.exit(1);
       }
 
       // Set the secret
+      console.log('  Setting repo secret...');
       try {
         execSync('gh secret set CLAUDE_CODE_OAUTH_TOKEN', {
           input: token,
@@ -320,6 +345,7 @@ export async function setupCiCommand({ force = false, dryRun = false, skipToken 
   }
 
   // Step 4: Install GitHub Actions workflows
+  console.log('Installing workflow files...');
   const gitRoot = execSync('git rev-parse --show-toplevel', { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }).trim();
   const workflowDir = path.join(gitRoot, '.github', 'workflows');
 
@@ -338,16 +364,18 @@ export async function setupCiCommand({ force = false, dryRun = false, skipToken 
       const overwrite = await promptYN(`Workflow .github/workflows/${wf.name} already exists. Overwrite? (y/n) `);
       if (!overwrite) {
         results.push({ item: `Workflow: .github/workflows/${wf.name}`, status: 'already exists (kept)', ok: true });
+        console.log(`  ${wf.name}    already exists (kept)`);
         continue;
       }
     }
 
     fs.writeFileSync(filePath, wf.content);
     results.push({ item: `Workflow: .github/workflows/${wf.name}`, status: 'installed', ok: true });
+    console.log(`  ${wf.name}    installed`);
   }
 
   // Step 5: Print summary
-  console.log('OpenSDD CI setup complete:');
+  console.log('\nOpenSDD CI setup complete:');
   for (const r of results) {
     const icon = r.ok ? '\u2713' : '-';
     console.log(`  ${icon} ${r.item.padEnd(45)} ${r.status}`);

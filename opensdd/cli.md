@@ -716,7 +716,7 @@ Sets up GitHub Actions CI for the spec-driven Propose workflow. Automates the on
 #### Prerequisites
 
 - `gh` CLI installed and authenticated (`gh auth status` succeeds)
-- `claude` CLI installed (for token generation via `claude setup-ci`)
+- `claude` CLI installed (for token generation via `claude setup-token`)
 - Current directory is inside a git repo with a GitHub remote
 - `opensdd.json` exists (run `opensdd init` first)
 
@@ -739,7 +739,7 @@ Sets up GitHub Actions CI for the spec-driven Propose workflow. Automates the on
    For each label, attempt creation. If the label already exists (`gh label create` exits with a non-zero code indicating it exists), skip and report as "already exists". The CLI MUST NOT fail if a label already exists.
 
 3. **Set up Claude Code OAuth token.** If `--skip-token` is set, skip this step and report "skipped (--skip-token)".
-   a. Run `claude setup-ci` to generate a token. Capture the output token.
+   a. Run `claude setup-token` to generate a token. Capture the output token.
    b. Check if the secret `CLAUDE_CODE_OAUTH_TOKEN` already exists by running `gh secret list` and checking for the name. If it exists and `--force` is not set, prompt the user: "Secret CLAUDE_CODE_OAUTH_TOKEN already exists. Overwrite? (y/n)". If declined, skip and report "already exists (kept)".
    c. Set the token as a GitHub repo secret via `gh secret set CLAUDE_CODE_OAUTH_TOKEN`.
 
@@ -807,7 +807,7 @@ Run without --dry-run to apply.
 - `gh` not authenticated: print error suggesting `gh auth login` and exit with code 1.
 - `claude` not installed (without `--skip-token`): print error suggesting install or `--skip-token` and exit with code 1.
 - No GitHub remote: print error and exit with code 1.
-- `claude setup-ci` fails: print error with the stderr output and exit with code 1.
+- `claude setup-token` fails: print error with the stderr output and exit with code 1.
 - `gh secret set` fails: print error with the stderr output and exit with code 1.
 - `.github/workflows/` cannot be created (permissions): print error and exit with code 1.
 
