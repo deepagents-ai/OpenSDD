@@ -8,7 +8,7 @@ description: "Manage OpenSDD specs — revise authored specs, implement dependen
 
 ## Overview
 
-The sdd-manager skill is installed once per project via `opensdd init` alongside the sdd-generate skill, into each supported coding agent's configuration directory. It teaches agents six workflows: revising an authored spec, implementing a dependency spec, processing a dependency spec update, checking conformance, creating deviations, and proposing spec changes for CI-driven implementation. It also defines universal implementation defaults, the project conventions check, and the verification protocol that apply to all spec implementations.
+The sdd-manager skill is installed per project via `opensdd init` (first time) or `opensdd sync` (updates) alongside the sdd-generate skill, into each supported coding agent's configuration directory. It teaches agents six workflows: revising an authored spec, implementing a dependency spec, processing a dependency spec update, checking conformance, creating deviations, and proposing spec changes for CI-driven implementation. It also defines universal implementation defaults, the project conventions check, and the verification protocol that apply to all spec implementations.
 
 This skill is the required entry point whenever an agent works with OpenSDD specs — whether revising the project's authored spec, implementing a dependency spec, processing a dependency update, checking conformance, creating a deviation, or proposing a spec change. The agent MUST NOT implement or modify code based on an OpenSDD spec outside of the workflows defined here.
 

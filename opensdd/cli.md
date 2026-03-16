@@ -31,16 +31,13 @@ Initializes the OpenSDD protocol in the current project. Supports two modes:
 
 Mode detection: presence of `specsDir` in `opensdd.json` = OpenSDD-driven. Absence = consumer-only.
 
-After successful initialization in full mode, the CLI MUST prompt: "Would you like to set up CI-driven spec implementation? (opensdd setup-ci) [y/N]". If the user confirms, run the `setup-ci` command. In consumer mode, do NOT prompt (CI setup requires an authored spec workflow).
+If `opensdd.json` already exists in the current working directory, print "Already initialized. Run `opensdd sync` to update skill files." and exit with code 0.
 
 #### Behavior
 
 1. Verify the current directory is a project root (contains `package.json`, `pyproject.toml`, `Cargo.toml`, `go.mod`, `.git`, `opensdd.json`, or similar project markers). If no project marker is found, warn the user and ask for confirmation to proceed.
-2. Read existing `opensdd.json` if present.
-3. Determine mode:
-   - **Existing manifest with `specsDir`** (OpenSDD-driven re-init): `mode = 'full'`. No prompt.
-   - **Existing manifest without `specsDir`** (consumer re-init): prompt "Upgrade to OpenSDD-driven? (y/n)". If yes, add `specsDir` to manifest and `mode = 'full'`. If no, `mode = 'consumer'`.
-   - **No manifest** (fresh init): prompt "How will this project use OpenSDD?" with numbered choices:
+2. If `opensdd.json` already exists in the current working directory, print "Already initialized. Run `opensdd sync` to update skill files." and exit with code 0.
+3. Determine mode: prompt "How will this project use OpenSDD?" with numbered choices:
      1. Consumer only — install and implement dependency specs
      2. OpenSDD-driven — full SDD methodology (author specs, both skills)
    Create manifest accordingly.
@@ -74,8 +71,7 @@ After successful initialization in full mode, the CLI MUST prompt: "Would you li
 
 - `opensdd init` selecting OpenSDD-driven in a fresh project MUST produce the full output below
 - `opensdd init` selecting consumer-only in a fresh project MUST produce the consumer output below
-- `opensdd init` in a project that already has OpenSDD initialized (with `specsDir`) MUST overwrite all skill installation files across all agent formats but MUST NOT overwrite `opensdd.json`
-- `opensdd init` in a consumer project MUST prompt to upgrade to OpenSDD-driven
+- `opensdd init` in a project that already has `opensdd.json` MUST print "Already initialized. Run `opensdd sync` to update skill files." and exit with code 0
 
 #### Output
 
@@ -100,18 +96,6 @@ Initialized OpenSDD:
   .opensdd.deps/             created
 ```
 
-OpenSDD-driven (re-init):
-```
-Initialized OpenSDD:
-  Skills installed for: Claude Code, Codex CLI, Cursor, GitHub Copilot, Gemini CLI, Amp
-    sdd-manager              updated (6 agent formats)
-    sdd-generate             updated (6 agent formats)
-  opensdd.json               already exists (preserved)
-  opensdd/                   already exists
-  opensdd/spec.md            already exists (preserved)
-  .opensdd.deps/             already exists
-```
-
 OpenSDD-driven (monorepo sub-project, fresh):
 ```
 Initialized OpenSDD:
@@ -125,29 +109,47 @@ Initialized OpenSDD:
   .opensdd.deps/             created
 ```
 
-OpenSDD-driven (monorepo sub-project, skills already installed):
-```
-Initialized OpenSDD:
-  Skills already installed at repo root (/path/to/monorepo):
-    sdd-manager              up to date (6 agent formats)
-    sdd-generate             up to date (6 agent formats)
-  opensdd.json (repo root)   already exists (preserved)
-  opensdd.json               created
-  opensdd/                   created
-  opensdd/spec.md            created (skeleton)
-  .opensdd.deps/             created
-```
-
 #### Errors
 
 - If `.claude/` directory cannot be created (permissions error), print error and exit with code 1.
 - If `opensdd.json` exists but is malformed JSON, print error and exit with code 1.
 
+### `opensdd sync`
+
+Updates the project's installed skill files and gate rules to match the current CLI version. This is the idempotent "make everything up to date" command — safe to run repeatedly.
+
+#### Behavior
+
+1. Resolve `opensdd.json` via manifest resolution. If not found, print "OpenSDD not initialized. Run `opensdd init` to get started." and exit with code 1.
+2. Determine mode from the resolved manifest: if `specsDir` is present, `mode = 'full'`; otherwise `mode = 'consumer'`.
+3. Determine the skill installation root (same logic as `opensdd init`): if inside a git repository, use the git root; otherwise use the current working directory.
+4. Re-install/update all skill files and gate rules across all supported agent formats for the determined mode. Use the same Skill Installation Mapping as `opensdd init`. Overwrite all existing skill files — they are spec-owned.
+5. If the skill installation root differs from the current working directory (monorepo), print the skill installation path.
+6. If `mode === 'full'` and CI is not already configured (no `.github/workflows/claude-implement.yml` exists at the git root), prompt: "Would you like to set up CI-driven spec implementation? (opensdd setup-ci) [y/N]". If the user confirms, run the `setup-ci` command.
+7. Print a summary of what was updated.
+
+- `opensdd sync` MUST NOT create or modify `opensdd.json`
+- `opensdd sync` MUST overwrite all skill files unconditionally (they are spec-owned)
+
+#### Output
+
+```
+Synced OpenSDD:
+  Skills installed for: Claude Code, Codex CLI, Cursor, GitHub Copilot, Gemini CLI, Amp
+    sdd-manager              updated (6 agent formats)
+    sdd-generate             updated (6 agent formats)
+```
+
+#### Errors
+
+- OpenSDD not initialized: print message suggesting `opensdd init` and exit with code 1.
+- If a skill installation directory cannot be created (permissions error), warn and continue with other agents.
+
 ### Skill Installation Mapping
 
 `opensdd init` installs skills into the native configuration format of each supported coding agent. In **consumer mode**, only `sdd-manager` is installed. In **full (OpenSDD-driven) mode**, both `sdd-manager` and `sdd-generate` are installed. The canonical skill content is authored as markdown source files in `opensdd/skills/` (`skills/sdd-manager.md`, `skills/sdd-generate.md`) and `opensdd/` (`spec-format.md`). Source skill files use Agent Skills frontmatter (`name`, `description`) which the CLI parses and transforms per-agent format during installation.
 
-All installed skill files are **spec-owned** — they are overwritten on every `opensdd init` and MUST NOT be edited by the user.
+All installed skill files are **spec-owned** — they are overwritten on every `opensdd init` or `opensdd sync` and MUST NOT be edited by the user.
 
 #### Always-On Gate Rule
 
@@ -171,7 +173,7 @@ The gate rule is installed into each agent's always-loaded file:
 
 For Copilot, Gemini CLI, and Amp / Codex CLI, the gate text is prepended to the existing managed OpenSDD section (before the `@` import directives or skill references). For Claude Code and Cursor, the gate is a separate file from the skill files.
 
-The gate rule files are **spec-owned** — they are overwritten on every `opensdd init`.
+The gate rule files are **spec-owned** — they are overwritten on every `opensdd init` or `opensdd sync`.
 
 #### Claude Code (Agent Skills standard)
 
@@ -294,7 +296,7 @@ Gemini CLI discovers `GEMINI.md` files in the project directory and supports `@f
 
 Appended to `GEMINI.md`:
 ```markdown
-<!-- OpenSDD Skills (managed by opensdd init — do not edit this section) -->
+<!-- OpenSDD Skills (managed by opensdd — do not edit this section) -->
 This project uses OpenSDD spec-driven development. Before implementing, modifying, or verifying any code governed by an OpenSDD spec, you MUST load and follow the sdd-manager skill/instructions first. Check `opensdd.json` and `.opensdd.deps/` to identify spec-governed code.
 
 @.claude/skills/sdd-manager/SKILL.md
@@ -311,7 +313,7 @@ Amp and Codex CLI discover `AGENTS.md` files in the project directory and suppor
 
 Appended to `AGENTS.md`:
 ```markdown
-<!-- OpenSDD Skills (managed by opensdd init — do not edit this section) -->
+<!-- OpenSDD Skills (managed by opensdd — do not edit this section) -->
 This project uses OpenSDD spec-driven development. Before implementing, modifying, or verifying any code governed by an OpenSDD spec, you MUST load and follow the sdd-manager skill/instructions first. Check `opensdd.json` and `.opensdd.deps/` to identify spec-governed code.
 
 @.claude/skills/sdd-manager/SKILL.md
@@ -325,7 +327,7 @@ The CLI MUST only modify the clearly delimited OpenSDD section. If an `AGENTS.md
 #### Installation notes
 
 - The Claude Code installation (`.claude/skills/`) serves as the canonical source that Gemini CLI and Amp reference via imports. It MUST always be installed, even if the user only uses Gemini or Amp.
-- All installed files are overwritten on every `opensdd init`. The CLI MUST NOT prompt for confirmation before overwriting skill files.
+- All installed files are overwritten on every `opensdd init` or `opensdd sync`. The CLI MUST NOT prompt for confirmation before overwriting skill files.
 - If a target directory cannot be created (e.g., permissions), the CLI SHOULD warn and continue installing to other agent directories rather than failing entirely.
 - For Gemini CLI and Amp, the CLI MUST NOT overwrite user content in `GEMINI.md` or `AGENTS.md` — it MUST only manage the clearly delimited OpenSDD section.
 
@@ -989,7 +991,7 @@ These templates are canonical references. The CLI embeds them as string constant
 
 Commands that require `opensdd.json` (all commands except `opensdd list` and `opensdd validate`) MUST resolve it by searching upward from the current working directory, stopping at the first `opensdd.json` found. This supports monorepos where each sub-project has its own `opensdd.json`. If no `opensdd.json` is found in any ancestor directory, the command fails with the appropriate "not initialized" error.
 
-`opensdd init` always creates `opensdd.json` in the current working directory. Skills are always installed at the git repository root (or the current working directory if not inside a git repository). This separation allows monorepo sub-projects to each have their own `opensdd.json` while sharing a single skill installation at the repo root.
+`opensdd init` always creates `opensdd.json` in the current working directory. `opensdd sync` never creates `opensdd.json` — it only updates skill files. Skills are always installed at the git repository root (or the current working directory if not inside a git repository). This separation allows monorepo sub-projects to each have their own `opensdd.json` while sharing a single skill installation at the repo root.
 
 In a monorepo, `opensdd init` also creates a minimal root-level `opensdd.json` at the git root (if one does not already exist) when the current working directory differs from the git root. This root manifest contains only the protocol version (`{ "opensdd": "0.1.0" }`) and serves as a workspace root marker — it allows repo-level commands (e.g., `opensdd setup-ci`) to find a manifest when run from the repo root. The root manifest does not contain `specsDir`, `depsDir`, `publish`, or `dependencies` — it is not a package manifest.
 
@@ -1024,8 +1026,7 @@ The CLI reads the existing `opensdd.json` dependency entry, applies updated meta
 - Running `opensdd update` when a pending update already exists for the spec: overwrite the existing staged update with the new one.
 - Running `opensdd update apply` when no pending updates exist: print "No pending updates." and exit with code 0 (not an error).
 - Running `opensdd update apply <name>` when the agent hasn't finished processing the changeset: the CLI has no way to verify this — it's the user's responsibility to confirm the migration is complete before applying.
-- Running `opensdd init` in a project that already has OpenSDD initialized (with `specsDir`): overwrite all skill installation files across all agent formats, leave `opensdd.json` untouched.
-- Running `opensdd init` in a consumer-only project: prompt to upgrade to OpenSDD-driven. If declined, re-install consumer skills only.
+- Running `opensdd init` in a project that already has `opensdd.json`: print "Already initialized. Run `opensdd sync` to update skill files." and exit with code 0.
 - Running `opensdd install` in an uninitialized project: auto-bootstrap as consumer, then continue with install. The auto-bootstrap uses default `installMode` unless the user later changes it.
 - Running `opensdd install` in skill mode for a spec that has no `SKILL.md` in the registry: generate one from `spec.md` using `generateSkillMd`.
 - Running `opensdd update` in skill mode: re-fetch the skill files and re-install across all agent formats, then stage the update as usual.
@@ -1036,11 +1037,9 @@ The CLI reads the existing `opensdd.json` dependency entry, applies updated meta
 - Publishing when the registry is a local path (not GitHub): reject with an error (publishing requires a GitHub registry for PR workflow).
 - Running `opensdd publish` when `gh` CLI is not installed: print error with installation guidance.
 - Running `opensdd install` with a version that doesn't exist in the registry: print error listing available versions.
-- Running `opensdd init` in a monorepo sub-project when skills are already installed at the repo root: compare installed skill content with the current version. If identical, print "up to date". If different, overwrite and print "updated". Always create the per-package manifest in the current directory.
-- Running `opensdd init` in a monorepo sub-project when no skills exist at the repo root: install skills at the repo root, create the per-package manifest in the current directory.
-- Running `opensdd init` at the repo root of a monorepo, then running it again in a sub-project: the second run detects skills at the repo root (updates if needed) and creates a new `opensdd.json` in the sub-project directory.
-- Running `opensdd init` in a monorepo sub-project when no root `opensdd.json` exists: create a minimal `{ "opensdd": "0.1.0" }` at the git root alongside the per-package manifest in the current directory.
-- Running `opensdd init` in a monorepo sub-project when a root `opensdd.json` already exists (from a prior init or from another sub-project): leave the root manifest untouched.
+- Running `opensdd sync` in a monorepo sub-project: resolves `opensdd.json` from the current directory, installs skills at the git root. Overwrites skill files unconditionally.
+- Running `opensdd sync` in an uninitialized project: print "OpenSDD not initialized. Run `opensdd init` to get started." and exit with code 1.
+- Running `opensdd sync` when skills are already up to date: overwrite anyway (skills are spec-owned, always overwritten).
 - Running `opensdd setup-ci` from the repo root of a monorepo: finds the root `opensdd.json` and proceeds. The CI setup is repo-scoped (labels, secrets, workflows), not package-scoped.
 - Running `opensdd setup-ci` in a repo that already has partial CI setup (some labels exist, workflows exist but secret is missing): each step checks independently and skips what already exists.
 - Running `opensdd setup-ci` when `gh` is installed but not authenticated: detect via `gh auth status` exit code and print a clear error before any mutations.
@@ -1068,7 +1067,7 @@ The CLI reads the existing `opensdd.json` dependency entry, applies updated meta
 - `opensdd update` MUST NOT modify `opensdd.json` — it only stages the update
 - `opensdd update` MUST create a staging directory in `.opensdd.deps/.updates/<name>/` for every spec that was updated (not for specs already up to date)
 - `opensdd update apply` MUST update `opensdd.json` and delete the staging directory
-- Skill installation files MUST always be installed at the git repository root (or cwd if no git root). They are fully spec-owned and overwritten on every `opensdd init`.
+- Skill installation files MUST always be installed at the git repository root (or cwd if no git root). They are fully spec-owned and overwritten on every `opensdd init` or `opensdd sync`.
 - The Claude Code skill installation (`.claude/skills/`) at the skill installation root MUST always be present since Gemini CLI and Amp reference it
 - `opensdd.json` MUST be created by `opensdd init` if it does not exist, and MUST NOT be overwritten if it already exists
 - Consumer-managed `opensdd.json` fields MUST survive all update operations
@@ -1078,7 +1077,7 @@ The CLI reads the existing `opensdd.json` dependency entry, applies updated meta
 - The CLI MUST NOT invoke an AI model or coding agent
 - `opensdd publish` MUST NOT allow overwriting an existing version in the registry
 - `.opensdd.deps/` MUST be committed to the repo (NOT gitignored)
-- `opensdd init` in a monorepo sub-project MUST create a root-level `opensdd.json` at the git root if one does not exist
+- `opensdd init` in a monorepo sub-project MUST create a root-level `opensdd.json` at the git root if one does not exist. `opensdd sync` MUST NOT create `opensdd.json` — it only updates skill files.
 - `opensdd setup-ci` MUST validate all prerequisites before performing any mutations
 - `opensdd setup-ci` MUST be idempotent — running it multiple times MUST NOT cause errors
 - `opensdd setup-ci --dry-run` MUST NOT create labels, set secrets, or write workflow files
