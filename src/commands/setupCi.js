@@ -55,6 +55,10 @@ on:
   pull_request:
     types: [closed]
 
+permissions:
+  contents: read
+  issues: write
+
 jobs:
   create-implementation-issue:
     if: github.event.pull_request.merged == true && contains(github.event.pull_request.labels.*.name, 'spec')
@@ -98,6 +102,7 @@ jobs:
             core.setOutput('files', specFiles.join('\\n'));
 
       - name: Create implementation issue
+        id: create-issue
         uses: actions/github-script@v7
         with:
           script: |
@@ -136,24 +141,55 @@ jobs:
               \`-->\`,
             ].filter(Boolean).join('\\n');
 
-            await github.rest.issues.create({
+            const issue = await github.rest.issues.create({
               owner: context.repo.owner,
               repo: context.repo.repo,
               title,
               body,
               labels: ['implement-spec']
             });
+            core.setOutput('issue-number', issue.data.number);
+
+      - name: Trigger implementation
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.repos.createDispatchEvent({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              event_type: 'implement-spec',
+              client_payload: {
+                issue_number: \${{ steps.create-issue.outputs.issue-number }},
+                package_name: '\${{ steps.metadata.outputs.package-name }}',
+                package_path: '\${{ steps.metadata.outputs.package-path }}',
+                specs_dir: '\${{ steps.metadata.outputs.specs-dir }}',
+                spec_pr: \${{ github.event.pull_request.number }}
+              }
+            });
 `;
 
 const CLAUDE_IMPLEMENT_WORKFLOW = `name: "OpenSDD: Implement Spec"
 
 on:
+  repository_dispatch:
+    types: [implement-spec]
   issues:
     types: [labeled]
+  issue_comment:
+    types: [created]
+  pull_request_review_comment:
+    types: [created]
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
 
 jobs:
   implement:
-    if: github.event.label.name == 'implement-spec'
+    if: |
+      github.event_name == 'repository_dispatch' ||
+      (github.event_name == 'issues' && github.event.label.name == 'implement-spec')
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -164,17 +200,28 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
-            const body = context.payload.issue.body || '';
-            const match = body.match(/<!--\\s*opensdd\\n([\\s\\S]*?)-->/);
-            if (!match) {
-              core.setFailed('No OpenSDD metadata block found in issue body');
-              return;
-            }
-            const lines = match[1].trim().split('\\n');
-            const metadata = {};
-            for (const line of lines) {
-              const [key, ...rest] = line.split(':');
-              metadata[key.trim()] = rest.join(':').trim();
+            let metadata;
+            if (context.eventName === 'repository_dispatch') {
+              const p = context.payload.client_payload;
+              metadata = {
+                'package-name': p.package_name || '',
+                'package-path': p.package_path || '',
+                'specs-dir': p.specs_dir || 'opensdd',
+                'spec-pr': String(p.spec_pr || ''),
+              };
+            } else {
+              const body = context.payload.issue.body || '';
+              const match = body.match(/<!--\\s*opensdd\\n([\\s\\S]*?)-->/);
+              if (!match) {
+                core.setFailed('No OpenSDD metadata block found in issue body');
+                return;
+              }
+              const lines = match[1].trim().split('\\n');
+              metadata = {};
+              for (const line of lines) {
+                const [key, ...rest] = line.split(':');
+                metadata[key.trim()] = rest.join(':').trim();
+              }
             }
             core.setOutput('package-name', metadata['package-name'] || '');
             core.setOutput('package-path', metadata['package-path'] || '');
@@ -197,6 +244,20 @@ jobs:
             2. Read the spec files in the specs directory
             3. Run /sdd-manager implement to generate the implementation
             4. Create a PR with the implementation
+
+  claude:
+    if: |
+      (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude')) ||
+      (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude'))
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Respond with Claude
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: \${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
 `;
 
 const WORKFLOW_FILES = [

@@ -4,6 +4,10 @@ on:
   pull_request:
     types: [closed]
 
+permissions:
+  contents: read
+  issues: write
+
 jobs:
   create-implementation-issue:
     if: github.event.pull_request.merged == true && contains(github.event.pull_request.labels.*.name, 'spec')
@@ -47,6 +51,7 @@ jobs:
             core.setOutput('files', specFiles.join('\n'));
 
       - name: Create implementation issue
+        id: create-issue
         uses: actions/github-script@v7
         with:
           script: |
@@ -85,19 +90,28 @@ jobs:
               `-->`,
             ].filter(Boolean).join('\n');
 
-            // Create issue without labels first, then add the label
-            // separately so the 'labeled' event fires and triggers
-            // the claude-implement workflow.
             const issue = await github.rest.issues.create({
               owner: context.repo.owner,
               repo: context.repo.repo,
               title,
               body,
+              labels: ['implement-spec']
             });
+            core.setOutput('issue-number', issue.data.number);
 
-            await github.rest.issues.addLabels({
+      - name: Trigger implementation
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.repos.createDispatchEvent({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              issue_number: issue.data.number,
-              labels: ['implement-spec']
+              event_type: 'implement-spec',
+              client_payload: {
+                issue_number: ${{ steps.create-issue.outputs.issue-number }},
+                package_name: '${{ steps.metadata.outputs.package-name }}',
+                package_path: '${{ steps.metadata.outputs.package-path }}',
+                specs_dir: '${{ steps.metadata.outputs.specs-dir }}',
+                spec_pr: ${{ github.event.pull_request.number }}
+              }
             });

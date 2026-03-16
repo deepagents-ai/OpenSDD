@@ -1099,10 +1099,42 @@ describe('opensdd CLI', () => {
 // ---- setup-ci tests (appended outside main describe) ----
 
 const SETUP_CI_PROJECT = path.join('/tmp', 'opensdd-test-setup-ci');
+const MOCK_BIN_DIR = path.join('/tmp', 'opensdd-test-mock-bin');
+
+function setupMockGh() {
+  fs.mkdirSync(MOCK_BIN_DIR, { recursive: true });
+  // Mock gh script that handles all subcommands without network calls
+  const mockGh = `#!/bin/sh
+case "$*" in
+  --version) echo "gh version 2.50.0 (mock)" ;;
+  "auth status") exit 0 ;;
+  "repo view --json nameWithOwner -q .nameWithOwner") echo "test-owner/test-repo" ;;
+  "secret list") echo "" ;;
+  label\\ create*) echo "label created" ;;
+  *) echo "mock gh: unhandled: $*" >&2; exit 1 ;;
+esac
+`;
+  const mockGhPath = path.join(MOCK_BIN_DIR, 'gh');
+  fs.writeFileSync(mockGhPath, mockGh);
+  fs.chmodSync(mockGhPath, 0o755);
+
+  // Mock claude script for --dry-run without --skip-token
+  const mockClaude = `#!/bin/sh
+case "$*" in
+  --version) echo "claude 1.0.0 (mock)" ;;
+  setup-token) echo "mock-token-value" ;;
+  *) echo "mock claude: unhandled: $*" >&2; exit 1 ;;
+esac
+`;
+  const mockClaudePath = path.join(MOCK_BIN_DIR, 'claude');
+  fs.writeFileSync(mockClaudePath, mockClaude);
+  fs.chmodSync(mockClaudePath, 0o755);
+}
 
 function setupCiProject() {
   fs.rmSync(SETUP_CI_PROJECT, { recursive: true, force: true });
   fs.mkdirSync(SETUP_CI_PROJECT, { recursive: true });
+  setupMockGh();
   execSync('git init', { cwd: SETUP_CI_PROJECT, stdio: 'ignore' });
   execSync('git remote add origin git@github.com:deepagents-ai/OpenSDD.git', {
     cwd: SETUP_CI_PROJECT,
@@ -1126,7 +1158,7 @@ function runCi(args, opts = {}) {
     return execSync(`node ${CLI} ${args}`, {
       cwd: SETUP_CI_PROJECT,
       encoding: 'utf-8',
-      env: { ...process.env, ...opts.env },
+      env: { ...process.env, PATH: `${MOCK_BIN_DIR}:${process.env.PATH}`, ...opts.env },
       input: opts.input,
       timeout: 15000,
     });
@@ -1141,6 +1173,7 @@ function runCi(args, opts = {}) {
 describe('opensdd setup-ci', () => {
   after(() => {
     fs.rmSync(SETUP_CI_PROJECT, { recursive: true, force: true });
+    fs.rmSync(MOCK_BIN_DIR, { recursive: true, force: true });
   });
 
   describe('command registration', () => {
