@@ -380,6 +380,73 @@ describe('opensdd CLI', () => {
         )
       );
     });
+
+    it('should create root manifest in monorepo sub-project', () => {
+      // Set up a monorepo: git repo at tmpDir, sub-project at packages/auth
+      const monorepoRoot = fs.mkdtempSync(path.join('/tmp', 'opensdd-monorepo-'));
+      execSync('git init', { cwd: monorepoRoot, stdio: 'ignore' });
+      const subProject = path.join(monorepoRoot, 'packages', 'auth');
+      fs.mkdirSync(subProject, { recursive: true });
+      fs.writeFileSync(
+        path.join(subProject, 'package.json'),
+        JSON.stringify({ name: '@myorg/auth' })
+      );
+
+      // Run opensdd init (full mode) from the sub-project
+      const output = run('init', subProject, { input: '2\nn\n' });
+
+      // Verify sub-project manifest created with specsDir
+      const subManifest = JSON.parse(
+        fs.readFileSync(path.join(subProject, 'opensdd.json'), 'utf-8')
+      );
+      assert.equal(subManifest.opensdd, '0.1.0');
+      assert.equal(subManifest.specsDir, 'opensdd');
+
+      // Verify root manifest created with minimal content
+      const rootManifest = JSON.parse(
+        fs.readFileSync(path.join(monorepoRoot, 'opensdd.json'), 'utf-8')
+      );
+      assert.deepEqual(rootManifest, { opensdd: '0.1.0' });
+
+      // Verify output mentions root manifest creation
+      assert.match(output, /opensdd\.json \(repo root\)\s+created \(workspace root\)/);
+
+      // Cleanup
+      fs.rmSync(monorepoRoot, { recursive: true, force: true });
+    });
+
+    it('should preserve existing root manifest in monorepo sub-project', () => {
+      // Set up a monorepo with an existing root manifest
+      const monorepoRoot = fs.mkdtempSync(path.join('/tmp', 'opensdd-monorepo-'));
+      execSync('git init', { cwd: monorepoRoot, stdio: 'ignore' });
+      const subProject = path.join(monorepoRoot, 'packages', 'auth');
+      fs.mkdirSync(subProject, { recursive: true });
+      fs.writeFileSync(
+        path.join(subProject, 'package.json'),
+        JSON.stringify({ name: '@myorg/auth' })
+      );
+
+      // Create root manifest with extra content before running init
+      const rootManifestPath = path.join(monorepoRoot, 'opensdd.json');
+      fs.writeFileSync(
+        rootManifestPath,
+        JSON.stringify({ opensdd: '0.1.0', custom: true }, null, 2) + '\n'
+      );
+
+      // Run opensdd init (full mode) from the sub-project
+      const output = run('init', subProject, { input: '2\nn\n' });
+
+      // Verify root manifest is untouched (still has custom: true)
+      const rootManifest = JSON.parse(fs.readFileSync(rootManifestPath, 'utf-8'));
+      assert.equal(rootManifest.opensdd, '0.1.0');
+      assert.equal(rootManifest.custom, true);
+
+      // Verify output says preserved, not created
+      assert.match(output, /opensdd\.json \(repo root\)\s+already exists \(preserved\)/);
+
+      // Cleanup
+      fs.rmSync(monorepoRoot, { recursive: true, force: true });
+    });
   });
 
   describe('list', () => {

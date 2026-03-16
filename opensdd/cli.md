@@ -45,6 +45,7 @@ After successful initialization in full mode, the CLI MUST prompt: "Would you li
      2. OpenSDD-driven — full SDD methodology (author specs, both skills)
    Create manifest accordingly.
 4. Determine the **skill installation root**: if the current directory is inside a git repository, use the git repository root. Otherwise, use the current working directory. Install skills at the skill installation root with the determined mode. In consumer mode, only `sdd-manager` is installed. In full mode, both `sdd-manager` and `sdd-generate` are installed. The full installation mapping is defined in the **Skill Installation Mapping** section below. If already present, overwrite — skills are always spec-owned. If the skill installation root differs from the current working directory, print the skill installation path in the output so the user knows where skills were installed.
+   If the skill installation root differs from the current working directory (monorepo sub-project), create a minimal `opensdd.json` at the skill installation root if one does not already exist. The root manifest contains only `{ "opensdd": "0.1.0" }`. If a root `opensdd.json` already exists, leave it untouched. Report the root manifest in the output.
 5. Create the `.opensdd.deps/` directory (or the directory specified by `depsDir` in an existing `opensdd.json`) if it does not exist. (Both modes.)
 6. If `mode === 'full'`:
    a. If `opensdd.json` does not exist in the current working directory, create it with default contents: `{ "opensdd": "0.1.0", "specsDir": "opensdd", "depsDir": ".opensdd.deps" }`. The `registry`, `publish`, and `dependencies` fields are intentionally omitted from the default — they are optional. When `registry` is absent, the CLI defaults to `https://github.com/deepagents-ai/opensdd` per the registry source resolution logic. If `opensdd.json` already exists, leave it untouched.
@@ -117,6 +118,7 @@ Initialized OpenSDD:
   Skills installed at repo root (/path/to/monorepo):
     sdd-manager              installed (6 agent formats)
     sdd-generate             installed (6 agent formats)
+  opensdd.json (repo root)   created (workspace root)
   opensdd.json               created
   opensdd/                   created
   opensdd/spec.md            created (skeleton)
@@ -129,6 +131,7 @@ Initialized OpenSDD:
   Skills already installed at repo root (/path/to/monorepo):
     sdd-manager              up to date (6 agent formats)
     sdd-generate             up to date (6 agent formats)
+  opensdd.json (repo root)   already exists (preserved)
   opensdd.json               created
   opensdd/                   created
   opensdd/spec.md            created (skeleton)
@@ -983,6 +986,8 @@ Commands that require `opensdd.json` (all commands except `opensdd list` and `op
 
 `opensdd init` always creates `opensdd.json` in the current working directory. Skills are always installed at the git repository root (or the current working directory if not inside a git repository). This separation allows monorepo sub-projects to each have their own `opensdd.json` while sharing a single skill installation at the repo root.
 
+In a monorepo, `opensdd init` also creates a minimal root-level `opensdd.json` at the git root (if one does not already exist) when the current working directory differs from the git root. This root manifest contains only the protocol version (`{ "opensdd": "0.1.0" }`) and serves as a workspace root marker — it allows repo-level commands (e.g., `opensdd setup-ci`) to find a manifest when run from the repo root. The root manifest does not contain `specsDir`, `depsDir`, `publish`, or `dependencies` — it is not a package manifest.
+
 ### Registry Source Resolution
 
 The CLI fetches specs from a registry source. The default source is the `registry/` directory in the OpenSDD GitHub repository.
@@ -1029,6 +1034,9 @@ The CLI reads the existing `opensdd.json` dependency entry, applies updated meta
 - Running `opensdd init` in a monorepo sub-project when skills are already installed at the repo root: compare installed skill content with the current version. If identical, print "up to date". If different, overwrite and print "updated". Always create the per-package manifest in the current directory.
 - Running `opensdd init` in a monorepo sub-project when no skills exist at the repo root: install skills at the repo root, create the per-package manifest in the current directory.
 - Running `opensdd init` at the repo root of a monorepo, then running it again in a sub-project: the second run detects skills at the repo root (updates if needed) and creates a new `opensdd.json` in the sub-project directory.
+- Running `opensdd init` in a monorepo sub-project when no root `opensdd.json` exists: create a minimal `{ "opensdd": "0.1.0" }` at the git root alongside the per-package manifest in the current directory.
+- Running `opensdd init` in a monorepo sub-project when a root `opensdd.json` already exists (from a prior init or from another sub-project): leave the root manifest untouched.
+- Running `opensdd setup-ci` from the repo root of a monorepo: finds the root `opensdd.json` and proceeds. The CI setup is repo-scoped (labels, secrets, workflows), not package-scoped.
 - Running `opensdd setup-ci` in a repo that already has partial CI setup (some labels exist, workflows exist but secret is missing): each step checks independently and skips what already exists.
 - Running `opensdd setup-ci` when `gh` is installed but not authenticated: detect via `gh auth status` exit code and print a clear error before any mutations.
 - Running `opensdd setup-ci --dry-run`: no mutations are performed. Labels are not created, secrets are not set, files are not written. Only a summary of what would happen is printed.
@@ -1065,6 +1073,7 @@ The CLI reads the existing `opensdd.json` dependency entry, applies updated meta
 - The CLI MUST NOT invoke an AI model or coding agent
 - `opensdd publish` MUST NOT allow overwriting an existing version in the registry
 - `.opensdd.deps/` MUST be committed to the repo (NOT gitignored)
+- `opensdd init` in a monorepo sub-project MUST create a root-level `opensdd.json` at the git root if one does not exist
 - `opensdd setup-ci` MUST validate all prerequisites before performing any mutations
 - `opensdd setup-ci` MUST be idempotent — running it multiple times MUST NOT cause errors
 - `opensdd setup-ci --dry-run` MUST NOT create labels, set secrets, or write workflow files

@@ -174,6 +174,16 @@ export async function initCommand() {
     console.warn(`Warning: ${w}`);
   }
 
+  // Create root manifest in monorepo sub-project if needed
+  let rootManifestCreated = false;
+  if (skillRootDiffers) {
+    const rootManifestPath = path.join(skillRoot, 'opensdd.json');
+    if (!fs.existsSync(rootManifestPath)) {
+      fs.writeFileSync(rootManifestPath, JSON.stringify({ opensdd: '0.1.0' }, null, 2) + '\n');
+      rootManifestCreated = true;
+    }
+  }
+
   // Step 5: Create or preserve opensdd.json
   if (!manifest) {
     if (mode === 'full') {
@@ -257,6 +267,11 @@ export async function initCommand() {
       );
     }
     console.log(`    sdd-manager              ${skillVerb} (6 agent formats)`);
+    if (skillRootDiffers) {
+      console.log(
+        `  opensdd.json (repo root)   ${rootManifestCreated ? 'created (workspace root)' : 'already exists (preserved)'}`
+      );
+    }
     console.log(
       `  opensdd.json               ${manifestCreated ? 'created' : 'already exists (preserved)'}`
     );
@@ -273,6 +288,11 @@ export async function initCommand() {
     }
     console.log(`    sdd-manager              ${skillVerb} (6 agent formats)`);
     console.log(`    sdd-generate             ${skillVerb} (6 agent formats)`);
+    if (skillRootDiffers) {
+      console.log(
+        `  opensdd.json (repo root)   ${rootManifestCreated ? 'created (workspace root)' : 'already exists (preserved)'}`
+      );
+    }
     console.log(
       `  opensdd.json               ${manifestCreated ? 'created' : 'already exists (preserved)'}`
     );

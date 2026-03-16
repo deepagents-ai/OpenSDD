@@ -206,6 +206,7 @@ In a monorepo, each sub-project maintains its own OpenSDD layer:
 
 ```
 my-monorepo/
+  opensdd.json              # Root manifest: workspace root marker
   packages/
     auth/
       opensdd.json
@@ -326,6 +327,18 @@ The `opensdd.json` file is the project-level manifest. It lives at the project r
 - `depsDir` (optional): Relative path from the project root to the directory containing installed dependency specs. Default: `".opensdd.deps"`.
 - `publish` (optional): Object defining the spec this project publishes. Omit if the project only consumes specs.
 - `dependencies` (optional): Object keyed by spec name. Each entry tracks an installed dependency spec. Omit if the project only publishes specs.
+
+#### Root manifest (monorepo workspace root)
+
+In a monorepo, the git root MAY have a minimal `opensdd.json` that serves as a workspace root marker. This manifest is created automatically by `opensdd init` when run from a sub-project directory. It contains only the protocol version:
+
+```json
+{
+  "opensdd": "0.1.0"
+}
+```
+
+The root manifest allows repo-level commands (e.g., `opensdd setup-ci`) to detect that the repository uses OpenSDD. It does not contain `specsDir`, `depsDir`, `publish`, or `dependencies` — those belong to per-package manifests. A root manifest with no `specsDir` and no `dependencies` is valid and indicates a workspace root rather than a consumer or author project.
 
 #### Publish fields
 
