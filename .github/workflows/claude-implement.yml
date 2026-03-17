@@ -65,7 +65,7 @@ jobs:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           claude_args: "--model claude-opus-4-6"
           prompt: |
-            You are implementing a spec that was merged in PR #${{ steps.metadata.outputs.spec-pr }}.
+            A spec change was merged in PR #${{ steps.metadata.outputs.spec-pr }}. Your job is to implement ONLY the changes from that PR — not the entire spec.
 
             Package: ${{ steps.metadata.outputs.package-name }}
             Package path: ${{ steps.metadata.outputs.package-path }}
@@ -73,9 +73,10 @@ jobs:
 
             Instructions:
             1. Navigate to the package path (if set): cd ${{ steps.metadata.outputs.package-path || '.' }}
-            2. Read the spec files in the specs directory
-            3. Run /sdd-manager implement to generate the implementation
-            4. Create a PR with the implementation
+            2. Run `gh pr diff ${{ steps.metadata.outputs.spec-pr }}` to see exactly what changed in the spec
+            3. Read the full spec files in the specs directory for context, but scope your implementation to ONLY the behaviors added or modified in the PR diff
+            4. Implement the changes following the behavioral contract, including tests for the new/changed behaviors
+            5. Create a PR with the implementation
 
   claude:
     if: |
