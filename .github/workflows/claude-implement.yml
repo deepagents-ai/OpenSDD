@@ -64,6 +64,7 @@ jobs:
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           claude_args: "--model claude-opus-4-6"
+          show_full_output: true
           prompt: |
             A spec change was merged in PR #${{ steps.metadata.outputs.spec-pr }}. Your job is to implement ONLY the changes from that PR — not the entire spec.
 
@@ -76,7 +77,10 @@ jobs:
             2. Run `gh pr diff ${{ steps.metadata.outputs.spec-pr }}` to see exactly what changed in the spec
             3. Read the full spec files in the specs directory for context, but scope your implementation to ONLY the behaviors added or modified in the PR diff
             4. Implement the changes following the behavioral contract, including tests for the new/changed behaviors
-            5. Create a PR with the implementation
+            5. Create a new branch, commit your changes, push, and open a PR:
+               - Branch: `implement/${{ steps.metadata.outputs.package-name }}/${{ steps.metadata.outputs.spec-pr }}`
+               - Commit message: `implement(${{ steps.metadata.outputs.package-name }}): changes from spec PR #${{ steps.metadata.outputs.spec-pr }}`
+               - Open the PR with `gh pr create` targeting `main`, referencing spec PR #${{ steps.metadata.outputs.spec-pr }} in the body
 
   claude:
     if: |
