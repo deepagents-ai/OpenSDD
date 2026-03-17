@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const OPENSDD_SECTION_START = '<!-- OpenSDD Skills (managed by opensdd init \u2014 do not edit this section) -->';
+const OPENSDD_SECTION_START = '<!-- OpenSDD Skills (managed by opensdd \u2014 do not edit this section) -->';
 const OPENSDD_SECTION_END = '<!-- /OpenSDD Skills -->';
 
 const GATE_TEXT = `This project uses OpenSDD spec-driven development. Before implementing, modifying, or verifying any code governed by an OpenSDD spec, you MUST load and follow the sdd-manager skill/instructions first. Check \`opensdd.json\` and \`.opensdd.deps/\` to identify spec-governed code.`;

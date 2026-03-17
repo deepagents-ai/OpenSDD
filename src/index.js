@@ -7,6 +7,7 @@ import { updateApplyCommand } from './commands/updateApply.js';
 import { publishCommand } from './commands/publish.js';
 import { statusCommand } from './commands/status.js';
 import { validateCommand } from './commands/validate.js';
+import { syncCommand } from './commands/sync.js';
 import { setupCiCommand } from './commands/setupCi.js';
 
 function parseArgs(argv) {
@@ -37,6 +38,7 @@ Usage: opensdd <command> [options]
 
 Commands:
   init                    Initialize OpenSDD in the current project
+  sync                    Update installed skill files and gate rules
   list                    List specs available in the registry
   install <name> [ver]    Install a spec from the registry
   update [name]           Fetch latest version of dependency specs
@@ -65,6 +67,10 @@ async function main() {
     switch (command) {
       case 'init':
         await initCommand();
+        break;
+
+      case 'sync':
+        await syncCommand();
         break;
 
       case 'list': {

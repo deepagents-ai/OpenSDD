@@ -227,39 +227,13 @@ describe('opensdd CLI', () => {
       assert.match(spec, /^# my-test-app/);
     });
 
-    it('should preserve opensdd.json on re-init', () => {
+    it('should print already initialized when opensdd.json exists', () => {
       run('init', TEST_PROJECT, { input: '2\n' });
 
-      // Modify opensdd.json
-      const manifestPath = path.join(TEST_PROJECT, 'opensdd.json');
-      const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
-      manifest.registry = 'https://github.com/custom/registry';
-      fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
-
-      // Re-init (manifest has specsDir, no prompt needed)
+      // Running init again should exit early with message
       const output = run('init');
-      assert.match(output, /opensdd\.json\s+already exists \(preserved\)/);
-      assert.match(output, /up to date \(6 agent formats\)/);
-
-      // Verify opensdd.json preserved
-      const updated = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
-      assert.equal(updated.registry, 'https://github.com/custom/registry');
-    });
-
-    it('should preserve GEMINI.md user content on re-init', () => {
-      fs.writeFileSync(
-        path.join(TEST_PROJECT, 'GEMINI.md'),
-        '# My Custom Instructions\n\nDo things.\n'
-      );
-      run('init', TEST_PROJECT, { input: '2\n' });
-
-      const gemini = fs.readFileSync(
-        path.join(TEST_PROJECT, 'GEMINI.md'),
-        'utf-8'
-      );
-      assert.match(gemini, /# My Custom Instructions/);
-      assert.match(gemini, /OpenSDD Skills/);
-      assert.match(gemini, /@\.claude\/skills\/sdd-manager\/SKILL\.md/);
+      assert.match(output, /Already initialized/);
+      assert.match(output, /opensdd sync/);
     });
 
     it('should error on malformed opensdd.json', () => {
@@ -312,52 +286,14 @@ describe('opensdd CLI', () => {
       assert.ok(fs.existsSync(path.join(TEST_PROJECT, '.opensdd.deps')));
     });
 
-    it('should upgrade consumer to OpenSDD-driven', () => {
+    it('should print already initialized for consumer project', () => {
       // First init as consumer
       run('init', TEST_PROJECT, { input: '1\n' });
 
-      // Re-init and accept upgrade
-      const output = run('init', TEST_PROJECT, { input: 'y\n' });
-      assert.match(output, /Initialized OpenSDD:/);
-      assert.match(output, /sdd-generate/);
-
-      // Verify specsDir added to manifest
-      const manifest = JSON.parse(
-        fs.readFileSync(path.join(TEST_PROJECT, 'opensdd.json'), 'utf-8')
-      );
-      assert.equal(manifest.specsDir, 'opensdd');
-
-      // Verify specs dir and spec.md created
-      assert.ok(fs.existsSync(path.join(TEST_PROJECT, 'opensdd', 'spec.md')));
-
-      // Verify sdd-generate installed
-      assert.ok(
-        fs.existsSync(
-          path.join(TEST_PROJECT, '.claude', 'skills', 'sdd-generate', 'SKILL.md')
-        )
-      );
-    });
-
-    it('should decline consumer upgrade', () => {
-      // First init as consumer
-      run('init', TEST_PROJECT, { input: '1\n' });
-
-      // Re-init and decline upgrade
-      const output = run('init', TEST_PROJECT, { input: 'n\n' });
-      assert.match(output, /Initialized OpenSDD \(consumer\)/);
-
-      // Verify still consumer
-      const manifest = JSON.parse(
-        fs.readFileSync(path.join(TEST_PROJECT, 'opensdd.json'), 'utf-8')
-      );
-      assert.equal(manifest.specsDir, undefined);
-
-      // Verify no sdd-generate
-      assert.ok(
-        !fs.existsSync(
-          path.join(TEST_PROJECT, '.claude', 'skills', 'sdd-generate', 'SKILL.md')
-        )
-      );
+      // Running init again should exit early with message
+      const output = run('init');
+      assert.match(output, /Already initialized/);
+      assert.match(output, /opensdd sync/);
     });
 
     it('should auto-bootstrap on install without init', () => {
@@ -443,6 +379,127 @@ describe('opensdd CLI', () => {
 
       // Verify output says preserved, not created
       assert.match(output, /opensdd\.json \(repo root\)\s+already exists \(preserved\)/);
+
+      // Cleanup
+      fs.rmSync(monorepoRoot, { recursive: true, force: true });
+    });
+  });
+
+  describe('sync', () => {
+    beforeEach(() => {
+      setupTestProject();
+    });
+
+    it('should update skill files in a full-mode project', () => {
+      // First init as OpenSDD-driven
+      run('init', TEST_PROJECT, { input: '2\n' });
+
+      // Run sync
+      const output = run('sync', TEST_PROJECT, { input: 'n\n' });
+      assert.match(output, /Synced OpenSDD/);
+      assert.match(output, /sdd-manager\s+updated \(6 agent formats\)/);
+      assert.match(output, /sdd-generate\s+updated \(6 agent formats\)/);
+
+      // Verify skill files still exist
+      assert.ok(
+        fs.existsSync(
+          path.join(TEST_PROJECT, '.claude', 'skills', 'sdd-manager', 'SKILL.md')
+        )
+      );
+      assert.ok(
+        fs.existsSync(
+          path.join(TEST_PROJECT, '.claude', 'skills', 'sdd-generate', 'SKILL.md')
+        )
+      );
+    });
+
+    it('should update skill files in a consumer-mode project', () => {
+      // First init as consumer
+      run('init', TEST_PROJECT, { input: '1\n' });
+
+      // Run sync
+      const output = run('sync');
+      assert.match(output, /Synced OpenSDD/);
+      assert.match(output, /sdd-manager\s+updated \(6 agent formats\)/);
+
+      // Consumer mode should NOT have sdd-generate in output
+      assert.doesNotMatch(output, /sdd-generate/);
+
+      // Verify sdd-manager installed
+      assert.ok(
+        fs.existsSync(
+          path.join(TEST_PROJECT, '.claude', 'skills', 'sdd-manager', 'SKILL.md')
+        )
+      );
+    });
+
+    it('should fail in uninitialized project', () => {
+      const result = run('sync', TEST_PROJECT, { expectError: true });
+      assert.match(result.stderr, /not initialized/i);
+      assert.equal(result.exitCode, 1);
+    });
+
+    it('should not modify opensdd.json', () => {
+      run('init', TEST_PROJECT, { input: '2\n' });
+
+      // Modify opensdd.json with custom field
+      const manifestPath = path.join(TEST_PROJECT, 'opensdd.json');
+      const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
+      manifest.registry = 'https://github.com/custom/registry';
+      fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
+
+      // Run sync
+      run('sync', TEST_PROJECT, { input: 'n\n' });
+
+      // Verify opensdd.json preserved
+      const updated = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
+      assert.equal(updated.registry, 'https://github.com/custom/registry');
+      assert.equal(updated.specsDir, 'opensdd');
+    });
+
+    it('should preserve GEMINI.md user content', () => {
+      fs.writeFileSync(
+        path.join(TEST_PROJECT, 'GEMINI.md'),
+        '# My Custom Instructions\n\nDo things.\n'
+      );
+      run('init', TEST_PROJECT, { input: '2\n' });
+
+      // Run sync to update skill files
+      run('sync', TEST_PROJECT, { input: 'n\n' });
+
+      const gemini = fs.readFileSync(
+        path.join(TEST_PROJECT, 'GEMINI.md'),
+        'utf-8'
+      );
+      assert.match(gemini, /# My Custom Instructions/);
+      assert.match(gemini, /OpenSDD Skills/);
+      assert.match(gemini, /@\.claude\/skills\/sdd-manager\/SKILL\.md/);
+    });
+
+    it('should work in monorepo sub-project', () => {
+      const monorepoRoot = fs.mkdtempSync(path.join('/tmp', 'opensdd-monorepo-'));
+      execSync('git init', { cwd: monorepoRoot, stdio: 'ignore' });
+      const subProject = path.join(monorepoRoot, 'packages', 'auth');
+      fs.mkdirSync(subProject, { recursive: true });
+      fs.writeFileSync(
+        path.join(subProject, 'package.json'),
+        JSON.stringify({ name: '@myorg/auth' })
+      );
+
+      // Init from sub-project
+      run('init', subProject, { input: '2\nn\n' });
+
+      // Run sync from sub-project
+      const output = run('sync', subProject, { input: 'n\n' });
+      assert.match(output, /Synced OpenSDD/);
+      assert.match(output, /sdd-manager\s+updated/);
+
+      // Verify skills at repo root
+      assert.ok(
+        fs.existsSync(
+          path.join(monorepoRoot, '.claude', 'skills', 'sdd-manager', 'SKILL.md')
+        )
+      );
 
       // Cleanup
       fs.rmSync(monorepoRoot, { recursive: true, force: true });
