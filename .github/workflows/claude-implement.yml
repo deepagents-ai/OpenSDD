@@ -63,7 +63,7 @@ jobs:
         uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          claude_args: "--model claude-opus-4-6"
+          claude_args: "--model claude-opus-4-6 --allowedTools Bash,Read,Write,Edit,Glob,Grep"
           show_full_output: true
           prompt: |
             A spec change was merged in PR #${{ steps.metadata.outputs.spec-pr }}. Your job is to implement ONLY the changes from that PR — not the entire spec.
@@ -72,15 +72,21 @@ jobs:
             Package path: ${{ steps.metadata.outputs.package-path }}
             Specs dir: ${{ steps.metadata.outputs.specs-dir }}
 
+            IMPORTANT: Do NOT use WebFetch. Use `gh` CLI commands via Bash for all GitHub operations.
+
             Instructions:
             1. Navigate to the package path (if set): cd ${{ steps.metadata.outputs.package-path || '.' }}
-            2. Run `gh pr diff ${{ steps.metadata.outputs.spec-pr }}` to see exactly what changed in the spec
+            2. Run `gh pr diff ${{ steps.metadata.outputs.spec-pr }}` via Bash to see exactly what changed in the spec
             3. Read the full spec files in the specs directory for context, but scope your implementation to ONLY the behaviors added or modified in the PR diff
             4. Implement the changes following the behavioral contract, including tests for the new/changed behaviors
-            5. Create a new branch, commit your changes, push, and open a PR:
-               - Branch: `implement/${{ steps.metadata.outputs.package-name }}/${{ steps.metadata.outputs.spec-pr }}`
-               - Commit message: `implement(${{ steps.metadata.outputs.package-name }}): changes from spec PR #${{ steps.metadata.outputs.spec-pr }}`
-               - Open the PR with `gh pr create` targeting `main`, referencing spec PR #${{ steps.metadata.outputs.spec-pr }} in the body
+            5. Create a new branch, commit your changes, push, and open a PR using these exact commands:
+               ```
+               git checkout -b implement/${{ steps.metadata.outputs.package-name }}/${{ steps.metadata.outputs.spec-pr }}
+               git add -A
+               git commit -m "implement(${{ steps.metadata.outputs.package-name }}): changes from spec PR #${{ steps.metadata.outputs.spec-pr }}"
+               git push -u origin implement/${{ steps.metadata.outputs.package-name }}/${{ steps.metadata.outputs.spec-pr }}
+               gh pr create --title "implement(${{ steps.metadata.outputs.package-name }}): spec PR #${{ steps.metadata.outputs.spec-pr }}" --body "Implementation of spec changes from #${{ steps.metadata.outputs.spec-pr }}"
+               ```
 
   claude:
     if: |
