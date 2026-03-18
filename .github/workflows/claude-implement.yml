@@ -32,6 +32,7 @@ jobs:
         with:
           script: |
             let metadata;
+            let issueNumber;
             if (context.eventName === 'repository_dispatch') {
               const p = context.payload.client_payload;
               metadata = {
@@ -40,6 +41,7 @@ jobs:
                 'specs-dir': p.specs_dir || 'opensdd',
                 'spec-pr': String(p.spec_pr || ''),
               };
+              issueNumber = String(p.issue_number || '');
             } else {
               const body = context.payload.issue.body || '';
               const match = body.match(/<!--\s*opensdd\n([\s\S]*?)-->/);
@@ -53,11 +55,13 @@ jobs:
                 const [key, ...rest] = line.split(':');
                 metadata[key.trim()] = rest.join(':').trim();
               }
+              issueNumber = String(context.payload.issue.number);
             }
             core.setOutput('package-name', metadata['package-name'] || '');
             core.setOutput('package-path', metadata['package-path'] || '');
             core.setOutput('specs-dir', metadata['specs-dir'] || 'opensdd');
             core.setOutput('spec-pr', metadata['spec-pr'] || '');
+            core.setOutput('issue-number', issueNumber);
 
       - name: Implement with Claude
         uses: anthropics/claude-code-action@v1
@@ -85,7 +89,9 @@ jobs:
                git add -A
                git commit -m "implement(${{ steps.metadata.outputs.package-name }}): changes from spec PR #${{ steps.metadata.outputs.spec-pr }}"
                git push -u origin implement/${{ steps.metadata.outputs.package-name }}/${{ steps.metadata.outputs.spec-pr }}
-               gh pr create --title "implement(${{ steps.metadata.outputs.package-name }}): spec PR #${{ steps.metadata.outputs.spec-pr }}" --body "Implementation of spec changes from #${{ steps.metadata.outputs.spec-pr }}"
+               gh pr create --title "implement(${{ steps.metadata.outputs.package-name }}): spec PR #${{ steps.metadata.outputs.spec-pr }}" --body "Implementation of spec changes from #${{ steps.metadata.outputs.spec-pr }}
+
+            Closes #${{ steps.metadata.outputs.issue-number }}"
                ```
 
   claude:
