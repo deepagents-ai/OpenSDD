@@ -3,7 +3,6 @@ import path from 'node:path';
 import { execSync } from 'node:child_process';
 import readline from 'node:readline';
 import { installSkills } from '../lib/skills.js';
-import { setupCiCommand } from './setupCi.js';
 
 const PROJECT_MARKERS = [
   'package.json',
@@ -30,7 +29,7 @@ function hasProjectMarker(dir) {
   return PROJECT_MARKERS.some((marker) => fs.existsSync(path.join(dir, marker)));
 }
 
-function findGitRoot(dir) {
+export function findGitRoot(dir) {
   try {
     const root = execSync('git rev-parse --show-toplevel', {
       cwd: dir,
@@ -115,44 +114,29 @@ export async function initCommand() {
     }
   }
 
-  // Step 2: Read existing opensdd.json if present
+  // Step 2: If opensdd.json already exists, exit early
   const manifestPath = path.join(cwd, 'opensdd.json');
-  let manifest = null;
 
   if (fs.existsSync(manifestPath)) {
     try {
-      manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
+      JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
     } catch (err) {
       console.error(`Error: opensdd.json is malformed JSON: ${err.message}`);
       process.exit(1);
     }
+    console.log('Already initialized. Run `opensdd sync` to update skill files.');
+    process.exit(0);
   }
 
-  // Step 3: Determine mode
-  let mode;
+  // Step 3: Determine mode (fresh init only — re-init is handled by `opensdd sync`)
+  let manifest = null;
   let manifestCreated = false;
 
-  if (manifest && manifest.specsDir) {
-    // OpenSDD-driven re-init — no prompt needed
-    mode = 'full';
-  } else if (manifest && !manifest.specsDir) {
-    // Consumer re-init — offer upgrade
-    const upgrade = await promptYN('Upgrade to OpenSDD-driven? (y/n) ');
-    if (upgrade) {
-      mode = 'full';
-      manifest.specsDir = manifest.specsDir || 'opensdd';
-      fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
-    } else {
-      mode = 'consumer';
-    }
-  } else {
-    // Fresh init — prompt for mode
-    const choice = await promptChoice('How will this project use OpenSDD?', [
-      'Consumer only \u2014 install and implement dependency specs',
-      'OpenSDD-driven \u2014 full SDD methodology (author specs, both skills)',
-    ]);
-    mode = choice === 2 ? 'full' : 'consumer';
-  }
+  const choice = await promptChoice('How will this project use OpenSDD?', [
+    'Consumer only \u2014 install and implement dependency specs',
+    'OpenSDD-driven \u2014 full SDD methodology (author specs, both skills)',
+  ]);
+  const mode = choice === 2 ? 'full' : 'consumer';
 
   // Step 4: Determine skill installation root and install skills
   const gitRoot = findGitRoot(cwd);
@@ -184,23 +168,21 @@ export async function initCommand() {
     }
   }
 
-  // Step 5: Create or preserve opensdd.json
-  if (!manifest) {
-    if (mode === 'full') {
-      manifest = {
-        opensdd: '0.1.0',
-        specsDir: 'opensdd',
-        depsDir: '.opensdd.deps',
-      };
-    } else {
-      manifest = {
-        opensdd: '0.1.0',
-        depsDir: '.opensdd.deps',
-      };
-    }
-    fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
-    manifestCreated = true;
+  // Step 5: Create opensdd.json
+  if (mode === 'full') {
+    manifest = {
+      opensdd: '0.1.0',
+      specsDir: 'opensdd',
+      depsDir: '.opensdd.deps',
+    };
+  } else {
+    manifest = {
+      opensdd: '0.1.0',
+      depsDir: '.opensdd.deps',
+    };
   }
+  fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
+  manifestCreated = true;
 
   const depsDir = manifest.depsDir || '.opensdd.deps';
   const depsDirPath = path.join(cwd, depsDir);
@@ -244,23 +226,12 @@ export async function initCommand() {
   }
 
   // Step 8: Print output
-  // Determine skill verb: 'installed' (fresh), 'updated' (content changed), 'up to date' (no change)
-  let skillVerb;
-  if (!skillRootDiffers && manifestCreated) {
-    // Fresh init at repo root — always 'installed'
-    skillVerb = 'installed';
-  } else if (skillsChanged) {
-    skillVerb = 'updated';
-  } else {
-    skillVerb = 'up to date';
-  }
-
-  const skillsUpToDate = skillVerb === 'up to date';
+  const skillVerb = 'installed';
 
   if (mode === 'consumer') {
     console.log('Initialized OpenSDD (consumer):');
     if (skillRootDiffers) {
-      console.log(`  Skills ${skillsUpToDate ? 'already installed' : 'installed'} at repo root (${skillRoot}):`);
+      console.log(`  Skills installed at repo root (${skillRoot}):`);
     } else {
       console.log(
         '  Skills installed for: Claude Code, Codex CLI, Cursor, GitHub Copilot, Gemini CLI, Amp'
@@ -280,7 +251,7 @@ export async function initCommand() {
     const specsDir = manifest.specsDir || 'opensdd';
     console.log('Initialized OpenSDD:');
     if (skillRootDiffers) {
-      console.log(`  Skills ${skillsUpToDate ? 'already installed' : 'installed'} at repo root (${skillRoot}):`);
+      console.log(`  Skills installed at repo root (${skillRoot}):`);
     } else {
       console.log(
         '  Skills installed for: Claude Code, Codex CLI, Cursor, GitHub Copilot, Gemini CLI, Amp'
@@ -301,14 +272,5 @@ export async function initCommand() {
       `  ${specsDir}/spec.md            ${specMdCreated ? 'created (skeleton)' : 'already exists (preserved)'}`
     );
     console.log(`  ${depsDir}/             ${depsDirCreated ? 'created' : 'already exists'}`);
-
-    // Prompt for CI setup in full mode
-    const setupCi = await promptYN(
-      '\nWould you like to set up CI-driven spec implementation? (opensdd setup-ci) [y/N] '
-    );
-    if (setupCi) {
-      console.log('');
-      await setupCiCommand();
-    }
   }
 }
