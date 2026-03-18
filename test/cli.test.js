@@ -1151,6 +1151,110 @@ describe('opensdd CLI', () => {
       assert.match(readme, /auto-generated/);
     });
   });
+
+  describe('publish interactive prompting', () => {
+    beforeEach(() => {
+      setupTestProject();
+      run('init', TEST_PROJECT, { input: '2\n' });
+    });
+
+    it('should prompt for all missing publish fields and write them to opensdd.json', () => {
+      // No publish section, no spec.md — will fail at spec.md check, but manifest should be updated
+      const input = 'my-pkg\n1.0.0\nA cool spec\n0.1.0\n';
+      const result = run('publish --registry https://github.com/fake/reg', TEST_PROJECT, {
+        expectError: true,
+        input,
+      });
+      // It will fail because spec.md doesn't exist, but publish fields should be written
+      const manifest = JSON.parse(
+        fs.readFileSync(path.join(TEST_PROJECT, 'opensdd.json'), 'utf-8')
+      );
+      assert.equal(manifest.publish.name, 'my-pkg');
+      assert.equal(manifest.publish.version, '1.0.0');
+      assert.equal(manifest.publish.description, 'A cool spec');
+      assert.equal(manifest.publish.specFormat, '0.1.0');
+    });
+
+    it('should only prompt for missing fields when some are already present', () => {
+      const manifestPath = path.join(TEST_PROJECT, 'opensdd.json');
+      const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
+      manifest.publish = { name: 'existing-name', version: '2.0.0' };
+      fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
+
+      // Only description and specFormat are missing, so provide just those
+      const input = 'My description\n0.1.0\n';
+      const result = run('publish --registry https://github.com/fake/reg', TEST_PROJECT, {
+        expectError: true,
+        input,
+      });
+      const updated = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
+      assert.equal(updated.publish.name, 'existing-name');
+      assert.equal(updated.publish.version, '2.0.0');
+      assert.equal(updated.publish.description, 'My description');
+      assert.equal(updated.publish.specFormat, '0.1.0');
+    });
+
+    it('should preserve existing manifest fields when writing publish section', () => {
+      const manifestPath = path.join(TEST_PROJECT, 'opensdd.json');
+      const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
+      manifest.customField = 'preserved';
+      fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
+
+      const input = 'my-pkg\n1.0.0\nA spec\n0.1.0\n';
+      run('publish --registry https://github.com/fake/reg', TEST_PROJECT, {
+        expectError: true,
+        input,
+      });
+      const updated = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
+      assert.equal(updated.customField, 'preserved');
+      assert.equal(updated.publish.name, 'my-pkg');
+    });
+
+    it('should exit with code 1 on EOF during prompting', () => {
+      // Send empty stdin (EOF immediately)
+      const result = run('publish --registry https://github.com/fake/reg', TEST_PROJECT, {
+        expectError: true,
+        input: '',
+      });
+      assert.equal(result.exitCode, 1);
+    });
+
+    it('should skip prompting when all publish fields are present', () => {
+      const manifestPath = path.join(TEST_PROJECT, 'opensdd.json');
+      const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
+      manifest.publish = {
+        name: 'full-spec',
+        version: '1.0.0',
+        description: 'Fully specified',
+        specFormat: '0.1.0',
+      };
+      fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
+
+      // No stdin needed — all fields present. Will fail at spec.md check or later.
+      const result = run('publish --registry https://github.com/fake/reg', TEST_PROJECT, {
+        expectError: true,
+        input: '',
+      });
+      // Should get past prompting — verify it didn't prompt by checking output doesn't contain prompt text
+      const output = (result.stderr || '') + (result.stdout || '');
+      assert.ok(!output.includes('Spec name'), 'should not prompt for name');
+      assert.ok(!output.includes('Version (semver'), 'should not prompt for version');
+      assert.ok(!output.includes('Description:'), 'should not prompt for description');
+    });
+
+    it('should re-prompt when user provides empty input for a required field', () => {
+      // First line is empty (re-prompt for name), second is valid name, then rest of fields
+      const input = '\nmy-pkg\n1.0.0\nA spec\n0.1.0\n';
+      const result = run('publish --registry https://github.com/fake/reg', TEST_PROJECT, {
+        expectError: true,
+        input,
+      });
+      const manifest = JSON.parse(
+        fs.readFileSync(path.join(TEST_PROJECT, 'opensdd.json'), 'utf-8')
+      );
+      assert.equal(manifest.publish.name, 'my-pkg');
+    });
+  });
 });
 
 // ---- setup-ci tests (appended outside main describe) ----

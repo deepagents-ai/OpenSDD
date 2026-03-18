@@ -17,14 +17,77 @@ import {
 import { validateSpec } from '../lib/validation.js';
 import { generateSkillMd } from '../lib/skills.js';
 
-function prompt(question) {
+const PUBLISH_FIELDS = [
+  { key: 'name', prompt: 'Spec name (lowercase alphanumeric and hyphens): ' },
+  { key: 'version', prompt: 'Version (semver, e.g. 1.0.0): ' },
+  { key: 'description', prompt: 'Description: ' },
+  { key: 'specFormat', prompt: 'Spec format version (e.g. 0.1.0): ' },
+];
+
+async function promptForMissingFields(publish) {
+  const result = { ...publish };
+  const missingFields = PUBLISH_FIELDS.filter(
+    (f) => !result[f.key] || result[f.key].trim() === ''
+  );
+  if (missingFields.length === 0) return result;
+
+  // Collect all lines from stdin to handle both piped and interactive input
+  const lines = [];
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-  return new Promise((resolve) => {
-    rl.question(question, (answer) => {
-      rl.close();
-      resolve(answer);
-    });
+
+  // For piped input, we need to collect answers using the line event
+  // because rl.question + close interact poorly with piped streams.
+  let lineResolve = null;
+  let eofReject = null;
+
+  rl.on('line', (line) => {
+    if (lineResolve) {
+      const r = lineResolve;
+      lineResolve = null;
+      r(line);
+    } else {
+      lines.push(line);
+    }
   });
+
+  rl.on('close', () => {
+    if (eofReject) {
+      eofReject(new Error('EOF'));
+    }
+  });
+
+  rl.on('SIGINT', () => {
+    if (eofReject) {
+      eofReject(new Error('interrupted'));
+    }
+  });
+
+  function getLine(promptText) {
+    process.stdout.write(promptText);
+    if (lines.length > 0) {
+      return Promise.resolve(lines.shift());
+    }
+    return new Promise((resolve, reject) => {
+      lineResolve = resolve;
+      eofReject = reject;
+    });
+  }
+
+  try {
+    for (const field of missingFields) {
+      while (!result[field.key] || result[field.key].trim() === '') {
+        const answer = await getLine(field.prompt);
+        if (answer.trim()) {
+          result[field.key] = answer.trim();
+        }
+      }
+    }
+  } catch {
+    rl.close();
+    process.exit(1);
+  }
+  rl.close();
+  return result;
 }
 
 function commandExists(cmd) {
@@ -62,23 +125,15 @@ export async function publishCommand(options) {
   const projectRoot = path.dirname(manifestPath);
   const registrySource = resolveRegistry(options, manifest);
 
-  // Step 2: Verify publish section
-  if (!manifest.publish) {
-    console.error('Error: No `publish` section in opensdd.json.');
-    console.error(
-      'Add a `publish` object with name, version, description, and specFormat to publish your spec.'
-    );
-    process.exit(1);
-  }
+  // Step 2-3: Read publish object and prompt for missing fields
+  const publish = manifest.publish || {};
+  const completedPublish = await promptForMissingFields(publish);
+
+  // Write completed publish object back to opensdd.json
+  manifest.publish = { ...manifest.publish, ...completedPublish };
+  fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
 
   const { name, version, description, specFormat, dependencies } = manifest.publish;
-
-  if (!name || !version || !description || !specFormat) {
-    console.error(
-      'Error: `publish` section must include name, version, description, and specFormat.'
-    );
-    process.exit(1);
-  }
 
   // Step 4: Verify spec.md exists
   const specsDir = getSpecsDir(manifest);
@@ -139,9 +194,15 @@ export async function publishCommand(options) {
   // Step 9: Determine branch name
   let branchName = options.branch;
   if (!branchName) {
-    const answer = await prompt(
-      `Enter branch name for the registry PR (default: opensdd/${name}-v${version}): `
-    );
+    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+    const answer = await new Promise((resolve) => {
+      rl.question(
+        `Enter branch name for the registry PR (default: opensdd/${name}-v${version}): `,
+        (a) => resolve(a)
+      );
+      rl.on('close', () => resolve(''));
+    });
+    rl.close();
     branchName = answer.trim() || `opensdd/${name}-v${version}`;
   }
 
