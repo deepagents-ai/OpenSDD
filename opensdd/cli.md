@@ -954,7 +954,10 @@ jobs:
 Handles all Claude Code interactions for the repository. Has two modes:
 
 - **Automated implementation** — Triggered by `repository_dispatch` (from `spec-merged.yml` after a spec PR merges) or by manually adding the `implement-spec` label to an issue. Extracts metadata (including the tracking issue number for auto-close), restricts the agent to file and shell tools, scopes the implementation to only the spec PR's diff, and provides explicit git/gh commands for creating the implementation PR.
-- **Interactive** — Triggered by `@claude` mentions in issue comments or PR review comments. Runs `claude-code-action` in interactive mode (no prompt) so Claude responds to the user's message directly.
+- **Interactive** — Triggered by `@claude` mentions in issue comments or PR review comments. The workflow detects the context (PR vs issue) and provides Claude with appropriate instructions for making changes and pushing commits. Three scenarios are handled:
+  - **PR comment**: Claude checks out the PR branch, makes changes based on the comment, commits, and pushes to the PR branch.
+  - **Issue comment with linked PR**: Claude finds the open PR linked to the issue (via "Closes #N" or GitHub linked PR API), checks out that PR's branch, makes changes, commits, and pushes.
+  - **Issue comment with no linked PR**: Claude creates a new branch from the default branch, implements the request, commits, pushes, and opens a new PR that references the issue with "Closes #N".
 
 ```yaml
 name: "OpenSDD: Implement Spec"
@@ -1061,11 +1064,100 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Detect context
+        id: context
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const isPR = context.eventName === 'pull_request_review_comment' ||
+              (context.payload.issue && context.payload.issue.pull_request);
+
+            if (isPR) {
+              let prNumber;
+              if (context.eventName === 'pull_request_review_comment') {
+                prNumber = context.payload.pull_request.number;
+              } else {
+                prNumber = context.payload.issue.number;
+              }
+              const pr = await github.rest.pulls.get({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: prNumber,
+              });
+              core.setOutput('mode', 'pr');
+              core.setOutput('pr-number', String(prNumber));
+              core.setOutput('pr-branch', pr.data.head.ref);
+              core.setOutput('issue-number', '');
+            } else {
+              const issueNumber = context.payload.issue.number;
+              const pulls = await github.rest.pulls.list({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                state: 'open',
+                per_page: 100,
+              });
+              let linkedPR = null;
+              for (const pr of pulls.data) {
+                const body = (pr.body || '').toLowerCase();
+                if (body.includes(`closes #${issueNumber}`) ||
+                    body.includes(`fixes #${issueNumber}`) ||
+                    body.includes(`resolves #${issueNumber}`)) {
+                  linkedPR = pr;
+                  break;
+                }
+              }
+              if (linkedPR) {
+                core.setOutput('mode', 'issue-with-pr');
+                core.setOutput('pr-number', String(linkedPR.number));
+                core.setOutput('pr-branch', linkedPR.head.ref);
+                core.setOutput('issue-number', String(issueNumber));
+              } else {
+                core.setOutput('mode', 'issue-no-pr');
+                core.setOutput('pr-number', '');
+                core.setOutput('pr-branch', '');
+                core.setOutput('issue-number', String(issueNumber));
+              }
+            }
+
+      - name: Checkout PR branch
+        if: steps.context.outputs.mode == 'pr' || steps.context.outputs.mode == 'issue-with-pr'
+        run: git checkout ${{ steps.context.outputs.pr-branch }}
+
       - name: Respond with Claude
         uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           claude_args: "--model claude-sonnet-4-6"
+          prompt: |
+            Context mode: ${{ steps.context.outputs.mode }}
+            PR number: ${{ steps.context.outputs.pr-number }}
+            PR branch: ${{ steps.context.outputs.pr-branch }}
+            Issue number: ${{ steps.context.outputs.issue-number }}
+
+            You are responding to an @claude mention. Read the comment that triggered this workflow and fulfill the request.
+
+            IMPORTANT: Do NOT use WebFetch. Use `gh` CLI commands via Bash for all GitHub operations.
+
+            ## If mode is "pr" or "issue-with-pr":
+            You are on the PR branch already. Make the requested changes, then commit and push:
+            ```
+            git add -A
+            git commit -m "<descriptive message of changes>"
+            git push
+            ```
+
+            ## If mode is "issue-no-pr":
+            You need to create a new PR. Read the issue for context, then:
+            1. Create a new branch from the current HEAD
+            2. Implement the requested changes
+            3. Commit, push, and open a PR:
+            ```
+            git checkout -b claude/issue-${{ steps.context.outputs.issue-number }}
+            git add -A
+            git commit -m "<descriptive message of changes>"
+            git push -u origin claude/issue-${{ steps.context.outputs.issue-number }}
+            gh pr create --title "<title>" --body "Closes #${{ steps.context.outputs.issue-number }}"
+            ```
 ```
 
 These templates are canonical references. The CLI embeds them as string constants and writes them verbatim to `.github/workflows/`.

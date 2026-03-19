@@ -47,7 +47,7 @@ Examples:
 
 If the agent determines the wrong workflow was triggered, it MUST stop and clarify with the user before proceeding.
 
-- **Propose**: User says "propose", "submit spec", "create spec PR", "send spec for implementation", or has staged/modified `.sdd.md` files and asks to "push" or "submit" them. Route to the Propose workflow.
+- **Propose**: User says "propose", "Propose:", "submit spec", "create spec PR", "send spec for implementation", or has staged/modified `.sdd.md` files and asks to "push" or "submit" them. A message prefixed with "Propose:" MUST be routed to the Propose workflow. Route to the Propose workflow.
 
 ## Workflows
 
