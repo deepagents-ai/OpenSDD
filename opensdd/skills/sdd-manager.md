@@ -1,6 +1,6 @@
 ---
 name: sdd-manager
-description: "Manage OpenSDD specs — revise authored specs, implement dependency specs, process updates, check conformance, create deviations, and propose spec changes for CI-driven implementation. Use when the user asks to revise a spec, implement a spec, process a spec update, check conformance, create a deviation, or propose a spec change."
+description: "Manage OpenSDD specs — revise authored specs, implement dependency specs, process updates, check conformance, create deviations, and propose spec changes for CI-driven implementation. Use when the user asks to revise a spec, implement a spec, process a spec update, check conformance, create a deviation, propose a spec change, or prefixes a message with 'Propose:'."
 ---
 # SDD Manager
 
@@ -47,7 +47,7 @@ Examples:
 
 If the agent determines the wrong workflow was triggered, it MUST stop and clarify with the user before proceeding.
 
-- **Propose**: User says "propose", "submit spec", "create spec PR", "send spec for implementation", or has staged/modified `.sdd.md` files and asks to "push" or "submit" them. Route to the Propose workflow.
+- **Propose**: User says "propose", "Propose:", "submit spec", "create spec PR", "send spec for implementation", or has staged/modified `.sdd.md` files and asks to "push" or "submit" them. A message prefixed with "Propose:" MUST be routed to the Propose workflow. Route to the Propose workflow.
 
 ## Workflows
 
