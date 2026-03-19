@@ -1,8 +1,13 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { execSync, execFileSync } from 'node:child_process';
 import readline from 'node:readline';
 import { findManifestPath } from '../lib/manifest.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const WORKFLOWS_DIR = path.resolve(__dirname, '../../opensdd/workflows');
 
 function promptYN(question) {
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
@@ -44,317 +49,16 @@ function getGitHubRepo() {
   }
 }
 
+export function readWorkflowFile(name) {
+  return fs.readFileSync(path.join(WORKFLOWS_DIR, name), 'utf-8');
+}
+
 const LABELS = [
   { name: 'spec', color: '0E8A16', description: 'PR contains only spec changes' },
   { name: 'implement-spec', color: '1D76DB', description: 'Issue to be auto-implemented by Claude' },
 ];
 
-const SPEC_MERGED_WORKFLOW = `name: "OpenSDD: Spec Merged"
-
-on:
-  pull_request:
-    types: [closed]
-
-permissions:
-  contents: write
-  issues: write
-  id-token: write
-
-jobs:
-  create-implementation-issue:
-    if: github.event.pull_request.merged == true && contains(github.event.pull_request.labels.*.name, 'spec')
-    runs-on: ubuntu-latest
-    steps:
-      - name: Extract OpenSDD metadata
-        id: metadata
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const body = context.payload.pull_request.body || '';
-            const match = body.match(/<!--\\s*opensdd\\n([\\s\\S]*?)-->/);
-            if (!match) {
-              core.setFailed('No OpenSDD metadata block found in PR body');
-              return;
-            }
-            const lines = match[1].trim().split('\\n');
-            const metadata = {};
-            for (const line of lines) {
-              const [key, ...rest] = line.split(':');
-              metadata[key.trim()] = rest.join(':').trim();
-            }
-            core.setOutput('package-name', metadata['package-name'] || '');
-            core.setOutput('package-path', metadata['package-path'] || '');
-            core.setOutput('specs-dir', metadata['specs-dir'] || 'opensdd');
-
-      - name: Get changed spec files
-        id: changed-files
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const files = await github.rest.pulls.listFiles({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              pull_number: context.payload.pull_request.number,
-              per_page: 100
-            });
-            const specFiles = files.data
-              .map(f => f.filename)
-              .filter(f => f.endsWith('.md') || f.endsWith('.sdd.md'));
-            core.setOutput('files', specFiles.join('\\n'));
-
-      - name: Create implementation issue
-        id: create-issue
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const packageName = '\${{ steps.metadata.outputs.package-name }}';
-            const packagePath = '\${{ steps.metadata.outputs.package-path }}';
-            const specsDir = '\${{ steps.metadata.outputs.specs-dir }}';
-            const specFiles = \`\${{ steps.changed-files.outputs.files }}\`;
-            const prNumber = context.payload.pull_request.number;
-            const prTitle = context.payload.pull_request.title;
-
-            const title = packagePath
-              ? \`implement(\${packageName}): \${prTitle.replace(/^spec(\\([^)]*\\))?:\\s*/, '')}\`
-              : \`implement: \${prTitle.replace(/^spec:\\s*/, '')}\`;
-
-            const body = [
-              \`## Spec Implementation\`,
-              \`\`,
-              \`Spec PR: #\${prNumber}\`,
-              \`Package: \\\`\${packageName}\\\`\`,
-              packagePath ? \`Package path: \\\`\${packagePath}\\\`\` : '',
-              \`Specs dir: \\\`\${specsDir}\\\`\`,
-              \`\`,
-              \`### Changed spec files\`,
-              \`\`,
-              specFiles.split('\\n').map(f => \`- \\\`\${f}\\\`\`).join('\\n'),
-              \`\`,
-              \`### Instructions\`,
-              \`\`,
-              \`Read the spec files listed above and run \\\`/sdd-manager implement\\\` to generate the implementation.\`,
-              \`\`,
-              \`<!-- opensdd\`,
-              \`package-name: \${packageName}\`,
-              \`package-path: \${packagePath}\`,
-              \`specs-dir: \${specsDir}\`,
-              \`spec-pr: \${prNumber}\`,
-              \`-->\`,
-            ].filter(Boolean).join('\\n');
-
-            const issue = await github.rest.issues.create({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              title,
-              body,
-              labels: ['implement-spec']
-            });
-            core.setOutput('issue-number', issue.data.number);
-
-      - name: Trigger implementation
-        uses: actions/github-script@v7
-        with:
-          script: |
-            await github.rest.repos.createDispatchEvent({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              event_type: 'implement-spec',
-              client_payload: {
-                issue_number: \${{ steps.create-issue.outputs.issue-number }},
-                package_name: '\${{ steps.metadata.outputs.package-name }}',
-                package_path: '\${{ steps.metadata.outputs.package-path }}',
-                specs_dir: '\${{ steps.metadata.outputs.specs-dir }}',
-                spec_pr: \${{ github.event.pull_request.number }}
-              }
-            });
-`;
-
-const CLAUDE_IMPLEMENT_WORKFLOW = `name: "OpenSDD: Implement Spec"
-
-on:
-  repository_dispatch:
-    types: [implement-spec]
-  issues:
-    types: [labeled]
-  issue_comment:
-    types: [created]
-  pull_request_review_comment:
-    types: [created]
-
-permissions:
-  contents: write
-  pull-requests: write
-  issues: write
-  id-token: write
-
-jobs:
-  implement:
-    if: |
-      github.event_name == 'repository_dispatch' ||
-      (github.event_name == 'issues' && github.event.label.name == 'implement-spec')
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Extract metadata
-        id: metadata
-        uses: actions/github-script@v7
-        with:
-          script: |
-            let metadata;
-            if (context.eventName === 'repository_dispatch') {
-              const p = context.payload.client_payload;
-              metadata = {
-                'package-name': p.package_name || '',
-                'package-path': p.package_path || '',
-                'specs-dir': p.specs_dir || 'opensdd',
-                'spec-pr': String(p.spec_pr || ''),
-              };
-            } else {
-              const body = context.payload.issue.body || '';
-              const match = body.match(/<!--\\s*opensdd\\n([\\s\\S]*?)-->/);
-              if (!match) {
-                core.setFailed('No OpenSDD metadata block found in issue body');
-                return;
-              }
-              const lines = match[1].trim().split('\\n');
-              metadata = {};
-              for (const line of lines) {
-                const [key, ...rest] = line.split(':');
-                metadata[key.trim()] = rest.join(':').trim();
-              }
-            }
-            core.setOutput('package-name', metadata['package-name'] || '');
-            core.setOutput('package-path', metadata['package-path'] || '');
-            core.setOutput('specs-dir', metadata['specs-dir'] || 'opensdd');
-            core.setOutput('spec-pr', metadata['spec-pr'] || '');
-
-      - name: Implement with Claude
-        uses: anthropics/claude-code-action@v1
-        with:
-          claude_code_oauth_token: \${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          prompt: |
-            You are implementing a spec that was merged in PR #\${{ steps.metadata.outputs.spec-pr }}.
-
-            Package: \${{ steps.metadata.outputs.package-name }}
-            Package path: \${{ steps.metadata.outputs.package-path }}
-            Specs dir: \${{ steps.metadata.outputs.specs-dir }}
-
-            Instructions:
-            1. Navigate to the package path (if set): cd \${{ steps.metadata.outputs.package-path || '.' }}
-            2. Read the spec files in the specs directory
-            3. Run /sdd-manager implement to generate the implementation
-            4. Create a PR with the implementation
-
-  claude:
-    if: |
-      (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude')) ||
-      (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude'))
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Detect context
-        id: context
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const isPR = context.eventName === 'pull_request_review_comment' ||
-              (context.payload.issue && context.payload.issue.pull_request);
-
-            if (isPR) {
-              let prNumber;
-              if (context.eventName === 'pull_request_review_comment') {
-                prNumber = context.payload.pull_request.number;
-              } else {
-                prNumber = context.payload.issue.number;
-              }
-              const pr = await github.rest.pulls.get({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                pull_number: prNumber,
-              });
-              core.setOutput('mode', 'pr');
-              core.setOutput('pr-number', String(prNumber));
-              core.setOutput('pr-branch', pr.data.head.ref);
-              core.setOutput('issue-number', '');
-            } else {
-              const issueNumber = context.payload.issue.number;
-              const pulls = await github.rest.pulls.list({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                state: 'open',
-                per_page: 100,
-              });
-              let linkedPR = null;
-              for (const pr of pulls.data) {
-                const body = (pr.body || '').toLowerCase();
-                if (body.includes(\`closes #\${issueNumber}\`) ||
-                    body.includes(\`fixes #\${issueNumber}\`) ||
-                    body.includes(\`resolves #\${issueNumber}\`)) {
-                  linkedPR = pr;
-                  break;
-                }
-              }
-              if (linkedPR) {
-                core.setOutput('mode', 'issue-with-pr');
-                core.setOutput('pr-number', String(linkedPR.number));
-                core.setOutput('pr-branch', linkedPR.head.ref);
-                core.setOutput('issue-number', String(issueNumber));
-              } else {
-                core.setOutput('mode', 'issue-no-pr');
-                core.setOutput('pr-number', '');
-                core.setOutput('pr-branch', '');
-                core.setOutput('issue-number', String(issueNumber));
-              }
-            }
-
-      - name: Checkout PR branch
-        if: steps.context.outputs.mode == 'pr' || steps.context.outputs.mode == 'issue-with-pr'
-        run: git checkout \${{ steps.context.outputs.pr-branch }}
-
-      - name: Respond with Claude
-        uses: anthropics/claude-code-action@v1
-        with:
-          claude_code_oauth_token: \${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          prompt: |
-            Context mode: \${{ steps.context.outputs.mode }}
-            PR number: \${{ steps.context.outputs.pr-number }}
-            PR branch: \${{ steps.context.outputs.pr-branch }}
-            Issue number: \${{ steps.context.outputs.issue-number }}
-
-            You are responding to an @claude mention. Read the comment that triggered this workflow and fulfill the request.
-
-            IMPORTANT: Do NOT use WebFetch. Use \`gh\` CLI commands via Bash for all GitHub operations.
-
-            ## If mode is "pr" or "issue-with-pr":
-            You are on the PR branch already. Make the requested changes, then commit and push:
-            \`\`\`
-            git add -A
-            git commit -m "<descriptive message of changes>"
-            git push
-            \`\`\`
-
-            ## If mode is "issue-no-pr":
-            You need to create a new PR. Read the issue for context, then:
-            1. Create a new branch from the current HEAD
-            2. Implement the requested changes
-            3. Commit, push, and open a PR:
-            \`\`\`
-            git checkout -b claude/issue-\${{ steps.context.outputs.issue-number }}
-            git add -A
-            git commit -m "<descriptive message of changes>"
-            git push -u origin claude/issue-\${{ steps.context.outputs.issue-number }}
-            gh pr create --title "<title>" --body "Closes #\${{ steps.context.outputs.issue-number }}"
-            \`\`\`
-`;
-
-const WORKFLOW_FILES = [
-  { name: 'spec-merged.yml', content: SPEC_MERGED_WORKFLOW },
-  { name: 'claude-implement.yml', content: CLAUDE_IMPLEMENT_WORKFLOW },
-];
+export const WORKFLOW_NAMES = ['spec-merged.yml', 'claude-implement.yml'];
 
 export async function setupCiCommand({ force = false, dryRun = false, skipToken = false } = {}) {
   const results = [];
@@ -410,8 +114,8 @@ export async function setupCiCommand({ force = false, dryRun = false, skipToken 
     } else {
       console.log('  Would set secret: CLAUDE_CODE_OAUTH_TOKEN');
     }
-    for (const wf of WORKFLOW_FILES) {
-      console.log(`  Would install: .github/workflows/${wf.name}`);
+    for (const name of WORKFLOW_NAMES) {
+      console.log(`  Would install: .github/workflows/${name}`);
     }
     console.log('\nRun without --dry-run to apply.');
     return;
@@ -508,22 +212,22 @@ export async function setupCiCommand({ force = false, dryRun = false, skipToken 
     process.exit(1);
   }
 
-  for (const wf of WORKFLOW_FILES) {
-    const filePath = path.join(workflowDir, wf.name);
+  for (const name of WORKFLOW_NAMES) {
+    const filePath = path.join(workflowDir, name);
     const exists = fs.existsSync(filePath);
 
     if (exists && !force) {
-      const overwrite = await promptYN(`Workflow .github/workflows/${wf.name} already exists. Overwrite? (y/n) `);
+      const overwrite = await promptYN(`Workflow .github/workflows/${name} already exists. Overwrite? (y/n) `);
       if (!overwrite) {
-        results.push({ item: `Workflow: .github/workflows/${wf.name}`, status: 'already exists (kept)', ok: true });
-        console.log(`  ${wf.name}    already exists (kept)`);
+        results.push({ item: `Workflow: .github/workflows/${name}`, status: 'already exists (kept)', ok: true });
+        console.log(`  ${name}    already exists (kept)`);
         continue;
       }
     }
 
-    fs.writeFileSync(filePath, wf.content);
-    results.push({ item: `Workflow: .github/workflows/${wf.name}`, status: 'installed', ok: true });
-    console.log(`  ${wf.name}    installed`);
+    fs.writeFileSync(filePath, readWorkflowFile(name));
+    results.push({ item: `Workflow: .github/workflows/${name}`, status: 'installed', ok: true });
+    console.log(`  ${name}    installed`);
   }
 
   // Step 5: Print summary

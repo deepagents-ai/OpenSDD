@@ -4,7 +4,7 @@ import readline from 'node:readline';
 import { findManifestPath, readManifest } from '../lib/manifest.js';
 import { installSkills } from '../lib/skills.js';
 import { findGitRoot } from './init.js';
-import { setupCiCommand } from './setupCi.js';
+import { setupCiCommand, WORKFLOW_NAMES, readWorkflowFile } from './setupCi.js';
 
 function promptYN(question) {
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
@@ -49,7 +49,18 @@ export async function syncCommand() {
     console.warn(`Warning: ${w}`);
   }
 
-  // Step 5: Print summary
+  // Step 5: Update CI workflow files (only overwrite existing ones)
+  const workflowDir = path.join(skillRoot, '.github', 'workflows');
+  const updatedWorkflows = [];
+  for (const name of WORKFLOW_NAMES) {
+    const filePath = path.join(workflowDir, name);
+    if (fs.existsSync(filePath)) {
+      fs.writeFileSync(filePath, readWorkflowFile(name));
+      updatedWorkflows.push(name);
+    }
+  }
+
+  // Step 6: Print summary
   console.log('Synced OpenSDD:');
   if (skillRootDiffers) {
     console.log(`  Skills installed at repo root (${skillRoot}):`);
@@ -62,8 +73,14 @@ export async function syncCommand() {
   if (mode === 'full') {
     console.log('    sdd-generate             updated (6 agent formats)');
   }
+  if (updatedWorkflows.length > 0) {
+    console.log('  Workflows:');
+    for (const name of updatedWorkflows) {
+      console.log(`    ${name.padEnd(25)}updated`);
+    }
+  }
 
-  // Step 6: If full mode and CI not already configured, prompt for CI setup
+  // Step 7: If full mode and CI not already configured, prompt for CI setup
   if (mode === 'full') {
     const ciWorkflowPath = path.join(skillRoot, '.github', 'workflows', 'claude-implement.yml');
     if (!fs.existsSync(ciWorkflowPath)) {
