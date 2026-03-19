@@ -116,7 +116,7 @@ Initialized OpenSDD:
 
 ### `opensdd sync`
 
-Updates the project's installed skill files and gate rules to match the current CLI version. This is the idempotent "make everything up to date" command — safe to run repeatedly.
+Updates the project's installed skill files, gate rules, and CI workflow files to match the current CLI version. This is the idempotent "make everything up to date" command — safe to run repeatedly.
 
 #### Behavior
 
@@ -124,12 +124,15 @@ Updates the project's installed skill files and gate rules to match the current 
 2. Determine mode from the resolved manifest: if `specsDir` is present, `mode = 'full'`; otherwise `mode = 'consumer'`.
 3. Determine the skill installation root (same logic as `opensdd init`): if inside a git repository, use the git root; otherwise use the current working directory.
 4. Re-install/update all skill files and gate rules across all supported agent formats for the determined mode. Use the same Skill Installation Mapping as `opensdd init`. Overwrite all existing skill files — they are spec-owned.
-5. If the skill installation root differs from the current working directory (monorepo), print the skill installation path.
-6. If `mode === 'full'` and CI is not already configured (no `.github/workflows/claude-implement.yml` exists at the git root), prompt: "Would you like to set up CI-driven spec implementation? (opensdd setup-ci) [y/N]". If the user confirms, run the `setup-ci` command.
-7. Print a summary of what was updated.
+5. **Update CI workflow files.** If `.github/workflows/` exists at the skill installation root and contains OpenSDD workflow files (`spec-merged.yml` and/or `claude-implement.yml`), overwrite them with the current bundled versions. Workflow files are spec-owned — like skill files, they are always overwritten on sync. Only overwrite files that already exist; do not create new workflow files (that is `setup-ci`'s responsibility).
+6. If the skill installation root differs from the current working directory (monorepo), print the skill installation path.
+7. If `mode === 'full'` and CI is not already configured (no `.github/workflows/claude-implement.yml` exists at the git root), prompt: "Would you like to set up CI-driven spec implementation? (opensdd setup-ci) [y/N]". If the user confirms, run the `setup-ci` command.
+8. Print a summary of what was updated.
 
 - `opensdd sync` MUST NOT create or modify `opensdd.json`
 - `opensdd sync` MUST overwrite all skill files unconditionally (they are spec-owned)
+- `opensdd sync` MUST overwrite existing CI workflow files unconditionally (they are spec-owned)
+- `opensdd sync` MUST NOT create CI workflow files that do not already exist (use `opensdd setup-ci` for initial installation)
 
 #### Output
 
@@ -138,6 +141,9 @@ Synced OpenSDD:
   Skills installed for: Claude Code, Codex CLI, Cursor, GitHub Copilot, Gemini CLI, Amp
     sdd-manager              updated (6 agent formats)
     sdd-generate             updated (6 agent formats)
+  Workflows:
+    spec-merged.yml          updated
+    claude-implement.yml     updated
 ```
 
 #### Errors
@@ -893,6 +899,9 @@ The CLI reads the existing `opensdd.json` dependency entry, applies updated meta
 - Running `opensdd sync` in a monorepo sub-project: resolves `opensdd.json` from the current directory, installs skills at the git root. Overwrites skill files unconditionally.
 - Running `opensdd sync` in an uninitialized project: print "OpenSDD not initialized. Run `opensdd init` to get started." and exit with code 1.
 - Running `opensdd sync` when skills are already up to date: overwrite anyway (skills are spec-owned, always overwritten).
+- Running `opensdd sync` when workflow files exist: overwrite them with the current bundled versions. Do not prompt — they are spec-owned.
+- Running `opensdd sync` when only one workflow file exists (e.g., `claude-implement.yml` but not `spec-merged.yml`): only overwrite the file that exists. Do not create the missing one.
+- Running `opensdd sync` when no workflow files exist: do not create them. Prompt for `setup-ci` if mode is full (existing behavior).
 - Running `opensdd setup-ci` from the repo root of a monorepo: finds the root `opensdd.json` and proceeds. The CI setup is repo-scoped (labels, secrets, workflows), not package-scoped.
 - Running `opensdd setup-ci` in a repo that already has partial CI setup (some labels exist, workflows exist but secret is missing): each step checks independently and skips what already exists.
 - Running `opensdd setup-ci` when `gh` is installed but not authenticated: detect via `gh auth status` exit code and print a clear error before any mutations.
@@ -935,3 +944,4 @@ The CLI reads the existing `opensdd.json` dependency entry, applies updated meta
 - `opensdd setup-ci` MUST be idempotent — running it multiple times MUST NOT cause errors
 - `opensdd setup-ci --dry-run` MUST NOT create labels, set secrets, or write workflow files
 - The bundled workflow files MUST be embedded in the package, not fetched from a remote
+- `opensdd sync` MUST update existing CI workflow files to the current bundled versions
