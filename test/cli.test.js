@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execSync } from 'node:child_process';
 import { generateSkillMd } from '../src/lib/skills.js';
+import { readWorkflowFile, WORKFLOW_NAMES } from '../src/commands/setupCi.js';
 
 const CLI = path.resolve('bin/opensdd.js');
 const PKG = JSON.parse(fs.readFileSync(path.resolve('package.json'), 'utf-8'));
@@ -1257,6 +1258,80 @@ describe('opensdd CLI', () => {
   });
 });
 
+describe('readWorkflowFile', () => {
+  it('should return bundled workflow content matching the source files', () => {
+    for (const name of WORKFLOW_NAMES) {
+      const content = readWorkflowFile(name);
+      assert.ok(content.length > 0, `${name} should not be empty`);
+      assert.match(content, /^name:/, `${name} should start with name:`);
+    }
+  });
+
+  it('should return claude-implement.yml with both implement and claude jobs', () => {
+    const content = readWorkflowFile('claude-implement.yml');
+
+    assert.match(content, /^\s+implement:/m);
+    assert.match(content, /^\s+claude:/m);
+  });
+
+  it('should return claude-implement.yml with context detection for three modes', () => {
+    const content = readWorkflowFile('claude-implement.yml');
+
+    // Verify context detection step
+    assert.match(content, /Detect context/);
+
+    // Three modes: pr, issue-with-pr, issue-no-pr
+    assert.match(content, /'pr'/);
+    assert.match(content, /'issue-with-pr'/);
+    assert.match(content, /'issue-no-pr'/);
+  });
+});
+
+describe('sdd-manager skill Propose: routing', () => {
+  it('should include Propose: prefix in skill description', () => {
+    const skillPath = path.resolve('opensdd/skills/sdd-manager.md');
+    const content = fs.readFileSync(skillPath, 'utf-8');
+
+    // Verify the description includes Propose: prefix routing
+    assert.match(content, /prefixes a message with 'Propose:'/);
+  });
+
+  it('should route Propose: prefixed messages to the Propose workflow', () => {
+    const skillPath = path.resolve('opensdd/skills/sdd-manager.md');
+    const content = fs.readFileSync(skillPath, 'utf-8');
+
+    // Verify Propose: MUST be routed
+    assert.match(content, /A message prefixed with "Propose:" MUST be routed to the Propose workflow/);
+  });
+
+  it('should install sdd-manager with Propose: routing via init', () => {
+    const testDir = path.join('/tmp', 'opensdd-test-propose');
+    fs.rmSync(testDir, { recursive: true, force: true });
+    fs.mkdirSync(testDir, { recursive: true });
+    execSync('git init', { cwd: testDir, stdio: 'ignore' });
+    fs.writeFileSync(
+      path.join(testDir, 'package.json'),
+      JSON.stringify({ name: 'propose-test' })
+    );
+
+    execSync(`node ${CLI} init`, {
+      cwd: testDir,
+      encoding: 'utf-8',
+      input: '2\n',
+      timeout: 15000,
+    });
+
+    // Verify installed skill includes Propose: routing
+    const claudeSkill = fs.readFileSync(
+      path.join(testDir, '.claude', 'skills', 'sdd-manager', 'SKILL.md'),
+      'utf-8'
+    );
+    assert.match(claudeSkill, /Propose:/);
+
+    fs.rmSync(testDir, { recursive: true, force: true });
+  });
+});
+
 // ---- setup-ci tests (appended outside main describe) ----
 
 const SETUP_CI_PROJECT = path.join('/tmp', 'opensdd-test-setup-ci');
@@ -1454,6 +1529,57 @@ describe('opensdd setup-ci', () => {
       const claudeContent = fs.readFileSync(claudeImplement, 'utf-8');
       assert.match(claudeContent, /^name:/);
       assert.match(claudeContent, /OpenSDD.*Implement Spec/);
+    });
+
+    it('should install claude-implement.yml with both implement and claude jobs', () => {
+      runCi('setup-ci --force --skip-token');
+
+      const claudeImplement = path.join(
+        SETUP_CI_PROJECT, '.github', 'workflows', 'claude-implement.yml'
+      );
+      const content = fs.readFileSync(claudeImplement, 'utf-8');
+
+      // Verify the implement job exists
+      assert.match(content, /^\s+implement:/m);
+
+      // Verify the claude job exists
+      assert.match(content, /^\s+claude:/m);
+    });
+
+    it('should install claude-implement.yml with context detection in claude job', () => {
+      runCi('setup-ci --force --skip-token');
+
+      const claudeImplement = path.join(
+        SETUP_CI_PROJECT, '.github', 'workflows', 'claude-implement.yml'
+      );
+      const content = fs.readFileSync(claudeImplement, 'utf-8');
+
+      // Verify context detection step exists
+      assert.match(content, /Detect context/);
+
+      // Verify all three modes are present
+      assert.match(content, /mode.*pr/);
+      assert.match(content, /mode.*issue-with-pr/);
+      assert.match(content, /mode.*issue-no-pr/);
+
+      // Verify PR branch checkout is conditional on mode
+      assert.match(content, /Checkout PR branch/);
+      assert.match(content, /steps\.context\.outputs\.mode == 'pr'/);
+      assert.match(content, /steps\.context\.outputs\.mode == 'issue-with-pr'/);
+    });
+
+    it('should install claude-implement.yml that handles @claude mentions', () => {
+      runCi('setup-ci --force --skip-token');
+
+      const claudeImplement = path.join(
+        SETUP_CI_PROJECT, '.github', 'workflows', 'claude-implement.yml'
+      );
+      const content = fs.readFileSync(claudeImplement, 'utf-8');
+
+      // Verify claude job triggers on @claude mentions in issue and PR comments
+      assert.match(content, /issue_comment/);
+      assert.match(content, /pull_request_review_comment/);
+      assert.match(content, /@claude/);
     });
 
     it('should be idempotent — running twice does not error', () => {
