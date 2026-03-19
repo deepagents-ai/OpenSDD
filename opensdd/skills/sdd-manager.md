@@ -1,6 +1,6 @@
 ---
 name: sdd-manager
-description: "Manage OpenSDD specs — revise authored specs, implement dependency specs, process updates, check conformance, create deviations, and propose spec changes for CI-driven implementation. Use when the user asks to revise a spec, implement a spec, process a spec update, check conformance, create a deviation, or propose a spec change."
+description: "Manage OpenSDD specs — revise authored specs, implement dependency specs, process updates, check conformance, create deviations, and propose spec changes for CI-driven implementation. Use when the user asks to revise a spec, implement a spec, process a spec update, check conformance, create a deviation, propose a spec change, or prefixes a message with 'Propose:'."
 ---
 # SDD Manager
 
