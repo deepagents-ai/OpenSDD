@@ -504,6 +504,65 @@ describe('opensdd CLI', () => {
       // Cleanup
       fs.rmSync(monorepoRoot, { recursive: true, force: true });
     });
+
+    it('should overwrite existing workflow files', () => {
+      run('init', TEST_PROJECT, { input: '2\n' });
+
+      // Create workflow files with stale content
+      const workflowDir = path.join(TEST_PROJECT, '.github', 'workflows');
+      fs.mkdirSync(workflowDir, { recursive: true });
+      fs.writeFileSync(path.join(workflowDir, 'spec-merged.yml'), 'old-content');
+      fs.writeFileSync(path.join(workflowDir, 'claude-implement.yml'), 'old-content');
+
+      // Run sync — should overwrite both
+      const output = run('sync', TEST_PROJECT);
+      assert.match(output, /Workflows:/);
+      assert.match(output, /spec-merged\.yml\s+updated/);
+      assert.match(output, /claude-implement\.yml\s+updated/);
+
+      // Verify content was overwritten with bundled versions
+      const specMerged = fs.readFileSync(path.join(workflowDir, 'spec-merged.yml'), 'utf-8');
+      assert.notEqual(specMerged, 'old-content');
+      assert.match(specMerged, /OpenSDD/);
+
+      const claudeImpl = fs.readFileSync(path.join(workflowDir, 'claude-implement.yml'), 'utf-8');
+      assert.notEqual(claudeImpl, 'old-content');
+      assert.match(claudeImpl, /OpenSDD/);
+    });
+
+    it('should only overwrite workflow files that exist', () => {
+      run('init', TEST_PROJECT, { input: '2\n' });
+
+      // Create only one workflow file
+      const workflowDir = path.join(TEST_PROJECT, '.github', 'workflows');
+      fs.mkdirSync(workflowDir, { recursive: true });
+      fs.writeFileSync(path.join(workflowDir, 'claude-implement.yml'), 'old-content');
+
+      // Run sync — should only overwrite the one that exists
+      const output = run('sync', TEST_PROJECT);
+      assert.match(output, /Workflows:/);
+      assert.match(output, /claude-implement\.yml\s+updated/);
+      assert.doesNotMatch(output, /spec-merged\.yml/);
+
+      // Verify spec-merged.yml was NOT created
+      assert.ok(!fs.existsSync(path.join(workflowDir, 'spec-merged.yml')));
+    });
+
+    it('should not create workflow files when none exist', () => {
+      run('init', TEST_PROJECT, { input: '2\n' });
+
+      // Ensure no workflow files exist (but .github/workflows/ dir exists)
+      const workflowDir = path.join(TEST_PROJECT, '.github', 'workflows');
+      fs.mkdirSync(workflowDir, { recursive: true });
+
+      // Run sync — should not create workflow files and should not show Workflows section
+      const output = run('sync', TEST_PROJECT, { input: 'n\n' });
+      assert.doesNotMatch(output, /Workflows:/);
+
+      // Verify no workflow files were created
+      assert.ok(!fs.existsSync(path.join(workflowDir, 'spec-merged.yml')));
+      assert.ok(!fs.existsSync(path.join(workflowDir, 'claude-implement.yml')));
+    });
   });
 
   describe('list', () => {
