@@ -1,5 +1,5 @@
 ---
-description: "Manage OpenSDD specs — revise authored specs, implement dependency specs, process updates, check conformance, create deviations, and propose spec changes for CI-driven implementation. Use when the user asks to revise a spec, implement a spec, process a spec update, check conformance, create a deviation, or propose a spec change."
+description: "Manage OpenSDD specs — revise authored specs, implement dependency specs, process updates, check conformance, create deviations, and propose spec changes for CI-driven implementation. Use when the user asks to revise a spec, implement a spec, process a spec update, check conformance, create a deviation, propose a spec change, or prefixes a message with 'Propose:'."
 alwaysApply: false
 ---
 
@@ -9,7 +9,7 @@ alwaysApply: false
 
 ## Overview
 
-The sdd-manager skill is installed once per project via `opensdd init` alongside the sdd-generate skill, into each supported coding agent's configuration directory. It teaches agents six workflows: revising an authored spec, implementing a dependency spec, processing a dependency spec update, checking conformance, creating deviations, and proposing spec changes for CI-driven implementation. It also defines universal implementation defaults, the project conventions check, and the verification protocol that apply to all spec implementations.
+The sdd-manager skill is installed per project via `opensdd init` (first time) or `opensdd sync` (updates) alongside the sdd-generate skill, into each supported coding agent's configuration directory. It teaches agents six workflows: revising an authored spec, implementing a dependency spec, processing a dependency spec update, checking conformance, creating deviations, and proposing spec changes for CI-driven implementation. It also defines universal implementation defaults, the project conventions check, and the verification protocol that apply to all spec implementations.
 
 This skill is the required entry point whenever an agent works with OpenSDD specs — whether revising the project's authored spec, implementing a dependency spec, processing a dependency update, checking conformance, creating a deviation, or proposing a spec change. The agent MUST NOT implement or modify code based on an OpenSDD spec outside of the workflows defined here.
 
@@ -48,7 +48,7 @@ Examples:
 
 If the agent determines the wrong workflow was triggered, it MUST stop and clarify with the user before proceeding.
 
-- **Propose**: User says "propose", "submit spec", "create spec PR", "send spec for implementation", or has staged/modified `.sdd.md` files and asks to "push" or "submit" them. Route to the Propose workflow.
+- **Propose**: User says "propose", "Propose:", "submit spec", "create spec PR", "send spec for implementation", or has staged/modified `.sdd.md` files and asks to "push" or "submit" them. A message prefixed with "Propose:" MUST be routed to the Propose workflow. Route to the Propose workflow.
 
 ## Workflows
 
