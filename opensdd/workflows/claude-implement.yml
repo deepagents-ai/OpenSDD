@@ -66,8 +66,9 @@ jobs:
       - name: Implement with Claude
         uses: anthropics/claude-code-action@v1
         with:
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          claude_args: "--model claude-sonnet-4-6 --allowedTools Bash,Read,Write,Edit,Glob,Grep"
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          claude_args: "--model claude-opus-4-6 --allowedTools Bash,Read,Write,Edit,Glob,Grep"
+          show_full_output: true
           prompt: |
             A spec change was merged in PR #${{ steps.metadata.outputs.spec-pr }}. Your job is to implement ONLY the changes from that PR — not the entire spec.
 
@@ -164,8 +165,8 @@ jobs:
       - name: Respond with Claude
         uses: anthropics/claude-code-action@v1
         with:
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          claude_args: "--model claude-sonnet-4-6"
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          claude_args: "--model claude-opus-4-6"
           prompt: |
             Context mode: ${{ steps.context.outputs.mode }}
             PR number: ${{ steps.context.outputs.pr-number }}

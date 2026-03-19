@@ -726,7 +726,7 @@ Sets up GitHub Actions CI for the spec-driven Propose workflow. Automates the on
 #### Prerequisites
 
 - `gh` CLI installed and authenticated (`gh auth status` succeeds)
-- Anthropic API key (from console.anthropic.com), unless `--skip-token` is used
+- Claude Code OAuth token (via `claude setup-token`), unless `--skip-token` is used
 - Current directory is inside a git repo with a GitHub remote
 - `opensdd.json` exists (run `opensdd init` first)
 
@@ -748,10 +748,10 @@ Sets up GitHub Actions CI for the spec-driven Propose workflow. Automates the on
 
    For each label, attempt creation. If the label already exists (`gh label create` exits with a non-zero code indicating it exists), skip and report as "already exists". The CLI MUST NOT fail if a label already exists.
 
-3. **Set up Anthropic API key.** If `--skip-token` is set, skip this step and report "skipped (--skip-token)".
-   a. Prompt the user for their Anthropic API key (from console.anthropic.com).
-   b. Check if the secret `ANTHROPIC_API_KEY` already exists by running `gh secret list` and checking for the name. If it exists and `--force` is not set, prompt the user: "Secret ANTHROPIC_API_KEY already exists. Overwrite? (y/n)". If declined, skip and report "already exists (kept)".
-   c. Set the key as a GitHub repo secret via `gh secret set ANTHROPIC_API_KEY`.
+3. **Set up Claude Code OAuth token.** If `--skip-token` is set, skip this step and report "skipped (--skip-token)".
+   a. Run `claude setup-token` to initiate the OAuth flow. The command outputs the token to stdout; stdin and stderr are inherited for user interaction.
+   b. Check if the secret `CLAUDE_CODE_OAUTH_TOKEN` already exists by running `gh secret list` and checking for the name. If it exists and `--force` is not set, prompt the user: "Secret CLAUDE_CODE_OAUTH_TOKEN already exists. Overwrite? (y/n)". If declined, skip and report "already exists (kept)".
+   c. Set the token as a GitHub repo secret via `gh secret set CLAUDE_CODE_OAUTH_TOKEN`.
 
 4. **Install GitHub Actions workflows.** Copy the two bundled workflow files into `.github/workflows/` (creating the directory if it does not exist):
    - `spec-merged.yml` — Triggers on `spec`-labeled PR merge, creates an implementation issue with the `implement-spec` label, and dispatches a `repository_dispatch` event to trigger implementation
@@ -779,7 +779,7 @@ Sets up GitHub Actions CI for the spec-driven Propose workflow. Automates the on
 OpenSDD CI setup complete:
   ✓ Label: spec                              created
   ✓ Label: implement-spec                    created
-  ✓ Secret: ANTHROPIC_API_KEY                set
+  ✓ Secret: CLAUDE_CODE_OAUTH_TOKEN                set
   ✓ Workflow: .github/workflows/spec-merged.yml       installed
   ✓ Workflow: .github/workflows/claude-implement.yml  installed
 
@@ -791,7 +791,7 @@ When items are skipped:
 OpenSDD CI setup complete:
   ✓ Label: spec                              already exists
   ✓ Label: implement-spec                    created
-  - Secret: ANTHROPIC_API_KEY                skipped (--skip-token)
+  - Secret: CLAUDE_CODE_OAUTH_TOKEN                skipped (--skip-token)
   ✓ Workflow: .github/workflows/spec-merged.yml       already exists (kept)
   ✓ Workflow: .github/workflows/claude-implement.yml  installed
 
@@ -803,7 +803,7 @@ Dry-run output:
 OpenSDD CI setup (dry run):
   Would create label: spec (#0E8A16)
   Would create label: implement-spec (#1D76DB)
-  Would set secret: ANTHROPIC_API_KEY
+  Would set secret: CLAUDE_CODE_OAUTH_TOKEN
   Would install: .github/workflows/spec-merged.yml
   Would install: .github/workflows/claude-implement.yml
 
@@ -815,7 +815,7 @@ Run without --dry-run to apply.
 - OpenSDD not initialized: print message suggesting `opensdd init` and exit with code 1.
 - `gh` not installed: print error with install URL and exit with code 1.
 - `gh` not authenticated: print error suggesting `gh auth login` and exit with code 1.
-- API key not provided (without `--skip-token`): print error suggesting `--skip-token` or providing the key and exit with code 1.
+- Token setup fails (without `--skip-token`): print error suggesting `--skip-token` or retrying and exit with code 1.
 - No GitHub remote: print error and exit with code 1.
 - `gh secret set` fails: print error with the stderr output and exit with code 1.
 - `.github/workflows/` cannot be created (permissions): print error and exit with code 1.
@@ -898,7 +898,7 @@ The CLI reads the existing `opensdd.json` dependency entry, applies updated meta
 - Running `opensdd setup-ci` when `gh` is installed but not authenticated: detect via `gh auth status` exit code and print a clear error before any mutations.
 - Running `opensdd setup-ci --dry-run`: no mutations are performed. Labels are not created, secrets are not set, files are not written. Only a summary of what would happen is printed.
 - Running `opensdd setup-ci --force`: all prompts for existing items are skipped; labels are re-created, secret is overwritten, workflow files are overwritten.
-- Running `opensdd setup-ci` with `--skip-token` and no API key: succeeds (API key is not required when token step is skipped).
+- Running `opensdd setup-ci` with `--skip-token`: succeeds (OAuth token is not required when token step is skipped).
 - Running `opensdd setup-ci` in a non-GitHub repo (e.g., GitLab remote): fails with "No GitHub remote found" error.
 
 ## NOT Specified (Implementation Freedom)

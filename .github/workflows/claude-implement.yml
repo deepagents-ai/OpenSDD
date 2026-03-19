@@ -103,8 +103,97 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Detect context
+        id: context
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const isPR = context.eventName === 'pull_request_review_comment' ||
+              (context.payload.issue && context.payload.issue.pull_request);
+
+            if (isPR) {
+              let prNumber;
+              if (context.eventName === 'pull_request_review_comment') {
+                prNumber = context.payload.pull_request.number;
+              } else {
+                prNumber = context.payload.issue.number;
+              }
+              const pr = await github.rest.pulls.get({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: prNumber,
+              });
+              core.setOutput('mode', 'pr');
+              core.setOutput('pr-number', String(prNumber));
+              core.setOutput('pr-branch', pr.data.head.ref);
+              core.setOutput('issue-number', '');
+            } else {
+              const issueNumber = context.payload.issue.number;
+              const pulls = await github.rest.pulls.list({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                state: 'open',
+                per_page: 100,
+              });
+              let linkedPR = null;
+              for (const pr of pulls.data) {
+                const body = (pr.body || '').toLowerCase();
+                if (body.includes(`closes #${issueNumber}`) ||
+                    body.includes(`fixes #${issueNumber}`) ||
+                    body.includes(`resolves #${issueNumber}`)) {
+                  linkedPR = pr;
+                  break;
+                }
+              }
+              if (linkedPR) {
+                core.setOutput('mode', 'issue-with-pr');
+                core.setOutput('pr-number', String(linkedPR.number));
+                core.setOutput('pr-branch', linkedPR.head.ref);
+                core.setOutput('issue-number', String(issueNumber));
+              } else {
+                core.setOutput('mode', 'issue-no-pr');
+                core.setOutput('pr-number', '');
+                core.setOutput('pr-branch', '');
+                core.setOutput('issue-number', String(issueNumber));
+              }
+            }
+
+      - name: Checkout PR branch
+        if: steps.context.outputs.mode == 'pr' || steps.context.outputs.mode == 'issue-with-pr'
+        run: git checkout ${{ steps.context.outputs.pr-branch }}
+
       - name: Respond with Claude
         uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           claude_args: "--model claude-opus-4-6"
+          prompt: |
+            Context mode: ${{ steps.context.outputs.mode }}
+            PR number: ${{ steps.context.outputs.pr-number }}
+            PR branch: ${{ steps.context.outputs.pr-branch }}
+            Issue number: ${{ steps.context.outputs.issue-number }}
+
+            You are responding to an @claude mention. Read the comment that triggered this workflow and fulfill the request.
+
+            IMPORTANT: Do NOT use WebFetch. Use `gh` CLI commands via Bash for all GitHub operations.
+
+            ## If mode is "pr" or "issue-with-pr":
+            You are on the PR branch already. Make the requested changes, then commit and push:
+            ```
+            git add -A
+            git commit -m "<descriptive message of changes>"
+            git push
+            ```
+
+            ## If mode is "issue-no-pr":
+            You need to create a new PR. Read the issue for context, then:
+            1. Create a new branch from the current HEAD
+            2. Implement the requested changes
+            3. Commit, push, and open a PR:
+            ```
+            git checkout -b claude/issue-${{ steps.context.outputs.issue-number }}
+            git add -A
+            git commit -m "<descriptive message of changes>"
+            git push -u origin claude/issue-${{ steps.context.outputs.issue-number }}
+            gh pr create --title "<title>" --body "Closes #${{ steps.context.outputs.issue-number }}"
+            ```
