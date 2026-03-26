@@ -212,20 +212,24 @@ export function installDependencySkill(projectRoot, name, skillMd, supplementary
     warnings.push(`Could not install GitHub Copilot skill for ${name}: ${err.message}`);
   }
 
-  // 5. Gemini CLI
+  // 5. Gemini CLI (patch only — do not create GEMINI.md)
   try {
     const geminiPath = path.join(projectRoot, 'GEMINI.md');
-    const geminiRef = `@.claude/skills/${name}/SKILL.md`;
-    appendToManagedSection(geminiPath, geminiRef);
+    if (fs.existsSync(geminiPath)) {
+      const geminiRef = `@.claude/skills/${name}/SKILL.md`;
+      appendToManagedSection(geminiPath, geminiRef);
+    }
   } catch (err) {
     warnings.push(`Could not install Gemini CLI skill for ${name}: ${err.message}`);
   }
 
-  // 6. Amp
+  // 6. Amp (patch only — do not create AGENTS.md)
   try {
     const ampPath = path.join(projectRoot, 'AGENTS.md');
-    const ampRef = `@.claude/skills/${name}/SKILL.md`;
-    appendToManagedSection(ampPath, ampRef);
+    if (fs.existsSync(ampPath)) {
+      const ampRef = `@.claude/skills/${name}/SKILL.md`;
+      appendToManagedSection(ampPath, ampRef);
+    }
   } catch (err) {
     warnings.push(`Could not install Amp skill for ${name}: ${err.message}`);
   }
@@ -339,9 +343,11 @@ ${generateBody}`;
     const copilotBase = path.join(projectRoot, '.github', 'instructions');
     ensureDir(copilotBase);
 
-    // Gate rule in copilot-instructions.md (always loaded)
+    // Gate rule in copilot-instructions.md (patch only — do not create)
     const copilotInstructionsPath = path.join(projectRoot, '.github', 'copilot-instructions.md');
-    updateManagedSection(copilotInstructionsPath, GATE_TEXT);
+    if (fs.existsSync(copilotInstructionsPath)) {
+      updateManagedSection(copilotInstructionsPath, GATE_TEXT);
+    }
 
     const { frontmatter: managerFmCp, body: managerBodyCp } = parseFrontmatter(skills.sddManager);
 
@@ -366,33 +372,54 @@ ${generateBody}`;
     warnings.push(`Could not install GitHub Copilot skills: ${err.message}`);
   }
 
-  // 5. Gemini CLI
+  // 5. Gemini CLI (patch only — do not create GEMINI.md)
+  const missingConfigs = [];
   try {
     const geminiPath = path.join(projectRoot, 'GEMINI.md');
-    let geminiBody = `${GATE_TEXT}\n\n@.claude/skills/sdd-manager/SKILL.md
+    if (fs.existsSync(geminiPath)) {
+      let geminiBody = `${GATE_TEXT}\n\n@.claude/skills/sdd-manager/SKILL.md
 @.claude/skills/sdd-manager/references/spec-format.md`;
-    if (isFull) {
-      geminiBody += `\n@.claude/skills/sdd-generate/SKILL.md
+      if (isFull) {
+        geminiBody += `\n@.claude/skills/sdd-generate/SKILL.md
 @.claude/skills/sdd-generate/references/spec-format.md`;
+      }
+      updateManagedSection(geminiPath, geminiBody);
+    } else {
+      missingConfigs.push('GEMINI.md');
     }
-    updateManagedSection(geminiPath, geminiBody);
   } catch (err) {
     warnings.push(`Could not install Gemini CLI skills: ${err.message}`);
   }
 
-  // 6. Amp / Codex CLI
+  // 6. Amp / Codex CLI (patch only — do not create AGENTS.md)
   try {
     const ampPath = path.join(projectRoot, 'AGENTS.md');
-    let ampBody = `${GATE_TEXT}\n\n@.claude/skills/sdd-manager/SKILL.md
+    if (fs.existsSync(ampPath)) {
+      let ampBody = `${GATE_TEXT}\n\n@.claude/skills/sdd-manager/SKILL.md
 @.claude/skills/sdd-manager/references/spec-format.md`;
-    if (isFull) {
-      ampBody += `\n@.claude/skills/sdd-generate/SKILL.md
+      if (isFull) {
+        ampBody += `\n@.claude/skills/sdd-generate/SKILL.md
 @.claude/skills/sdd-generate/references/spec-format.md`;
+      }
+      updateManagedSection(ampPath, ampBody);
+    } else {
+      missingConfigs.push('AGENTS.md');
     }
-    updateManagedSection(ampPath, ampBody);
   } catch (err) {
     warnings.push(`Could not install Amp skills: ${err.message}`);
   }
 
-  return { warnings, anyChanged };
+  // 7. Claude Code (CLAUDE.md — patch only, do not create)
+  try {
+    const claudeMdPath = path.join(projectRoot, 'CLAUDE.md');
+    if (fs.existsSync(claudeMdPath)) {
+      updateManagedSection(claudeMdPath, GATE_TEXT);
+    } else {
+      missingConfigs.push('CLAUDE.md');
+    }
+  } catch (err) {
+    warnings.push(`Could not patch CLAUDE.md: ${err.message}`);
+  }
+
+  return { warnings, anyChanged, missingConfigs };
 }

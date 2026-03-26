@@ -172,14 +172,17 @@ The gate rule is installed into each agent's always-loaded file:
 | Agent | Gate file | Always-loaded mechanism |
 |---|---|---|
 | Claude Code | `.claude/rules/opensdd-gate.md` | Rules without `paths:` frontmatter always load |
+| Claude Code | `CLAUDE.md` (managed section) | Always loaded at project root |
 | Cursor | `.cursor/rules/opensdd-gate.md` | `alwaysApply: true` frontmatter |
-| GitHub Copilot | `.github/copilot-instructions.md` | Always included in every Copilot request |
-| Gemini CLI | `GEMINI.md` | Always loaded at project root |
-| Amp / Codex CLI | `AGENTS.md` | Always loaded at project root |
+| GitHub Copilot | `.github/copilot-instructions.md` (managed section) | Always included in every Copilot request |
+| Gemini CLI | `GEMINI.md` (managed section) | Always loaded at project root |
+| Amp / Codex CLI | `AGENTS.md` (managed section) | Always loaded at project root |
 
-For Copilot, Gemini CLI, and Amp / Codex CLI, the gate text is prepended to the existing managed OpenSDD section (before the `@` import directives or skill references). For Claude Code and Cursor, the gate is a separate file from the skill files.
+For Claude Code (CLAUDE.md), Copilot, Gemini CLI, and Amp / Codex CLI, the gate text is included in the managed OpenSDD section. For Gemini CLI and Amp, the section also contains `@` import directives for the skill files. For Claude Code and Cursor, the gate is additionally installed as a separate file (`.claude/rules/opensdd-gate.md`, `.cursor/rules/opensdd-gate.md`).
 
-The gate rule files are **spec-owned** — they are overwritten on every `opensdd init` or `opensdd sync`.
+The gate rule in `.claude/rules/` and `.cursor/rules/` is **spec-owned** — always overwritten on every `opensdd init` or `opensdd sync`.
+
+For files that use managed sections (`CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, `.github/copilot-instructions.md`), the CLI MUST only patch files that already exist. The CLI MUST NOT create these files — they are user-owned. If a file does not exist, the CLI skips it and reports it in the output as a recommendation (see below).
 
 #### Claude Code (Agent Skills standard)
 
@@ -198,6 +201,8 @@ Each skill is a directory with a `SKILL.md` and a `references/` subdirectory. Cl
     references/
       spec-format.md            ← spec-format.md
 ```
+
+In addition to the auto-discovered rules and skills, if `CLAUDE.md` exists at the project root, the CLI patches it with a managed section containing the gate rule text. Since Claude Code auto-discovers `.claude/skills/`, no `@` import directives are needed — the managed section contains only the gate text. The CLI only patches `CLAUDE.md` if it already exists — it does not create the file.
 
 #### OpenAI Codex CLI (Agent Skills standard)
 
@@ -262,7 +267,7 @@ alwaysApply: false
 
 Copilot discovers instructions as `.instructions.md` files in `.github/instructions/` and project-wide instructions in `.github/copilot-instructions.md`. Each skill becomes an instruction file with YAML frontmatter. The `applyTo` field is set to `"**"` so the instructions are available across the project.
 
-The gate rule is installed in `.github/copilot-instructions.md` (always loaded by Copilot) as a managed section.
+The gate rule is installed in `.github/copilot-instructions.md` (always loaded by Copilot) as a managed section. The CLI only patches `.github/copilot-instructions.md` if it already exists — it does not create the file.
 
 ```
 .github/copilot-instructions.md  ← gate rule in managed section (see Always-On Gate Rule)
@@ -298,7 +303,7 @@ description: "OpenSDD spec format reference. Defines the structure and rules for
 
 #### Gemini CLI
 
-Gemini CLI discovers `GEMINI.md` files in the project directory and supports `@file.md` import syntax for referencing other files. Rather than duplicating skill content, the CLI appends import directives to `GEMINI.md` (creating it if it does not exist) that reference the canonical skill files from the Claude Code installation.
+Gemini CLI discovers `GEMINI.md` files in the project directory and supports `@file.md` import syntax for referencing other files. Rather than duplicating skill content, the CLI appends import directives to `GEMINI.md` that reference the canonical skill files from the Claude Code installation. The CLI only patches `GEMINI.md` if it already exists — it does not create the file.
 
 Appended to `GEMINI.md`:
 ```markdown
@@ -315,7 +320,7 @@ The CLI MUST only modify the clearly delimited OpenSDD section. If a `GEMINI.md`
 
 #### Amp / Codex CLI
 
-Amp and Codex CLI discover `AGENTS.md` files in the project directory and support `@` reference syntax for including other files. The CLI appends references to `AGENTS.md` (creating it if it does not exist) that point to the canonical skill files.
+Amp and Codex CLI discover `AGENTS.md` files in the project directory and support `@` reference syntax for including other files. The CLI appends references to `AGENTS.md` that point to the canonical skill files. The CLI only patches `AGENTS.md` if it already exists — it does not create the file.
 
 Appended to `AGENTS.md`:
 ```markdown
@@ -333,9 +338,10 @@ The CLI MUST only modify the clearly delimited OpenSDD section. If an `AGENTS.md
 #### Installation notes
 
 - The Claude Code installation (`.claude/skills/`) serves as the canonical source that Gemini CLI and Amp reference via imports. It MUST always be installed, even if the user only uses Gemini or Amp.
-- All installed files are overwritten on every `opensdd init` or `opensdd sync`. The CLI MUST NOT prompt for confirmation before overwriting skill files.
+- All installed skill files (in `.claude/`, `.agents/`, `.cursor/rules/`, `.github/instructions/`) are overwritten on every `opensdd init` or `opensdd sync`. The CLI MUST NOT prompt for confirmation before overwriting skill files.
 - If a target directory cannot be created (e.g., permissions), the CLI SHOULD warn and continue installing to other agent directories rather than failing entirely.
-- For Gemini CLI and Amp, the CLI MUST NOT overwrite user content in `GEMINI.md` or `AGENTS.md` — it MUST only manage the clearly delimited OpenSDD section.
+- For files that use managed sections (`CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, `.github/copilot-instructions.md`), the CLI MUST NOT overwrite user content — it MUST only manage the clearly delimited OpenSDD section. The CLI MUST NOT create these files if they do not already exist.
+- If any managed-section config files are missing, the CLI MUST print a tip after the installation summary recommending that the user create them and re-run `opensdd sync`. The tip lists each missing file by name.
 
 ### `opensdd list`
 

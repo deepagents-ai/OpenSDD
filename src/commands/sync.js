@@ -37,9 +37,11 @@ export async function syncCommand() {
 
   // Step 4: Re-install/update all skill files
   let warnings;
+  let missingConfigs;
   try {
     const result = installSkills(skillRoot, { mode });
     warnings = result.warnings;
+    missingConfigs = result.missingConfigs;
   } catch (err) {
     console.error(`Error: Could not install skills: ${err.message}`);
     process.exit(1);
@@ -77,6 +79,15 @@ export async function syncCommand() {
     console.log('  Workflows:');
     for (const name of updatedWorkflows) {
       console.log(`    ${name.padEnd(25)}updated`);
+    }
+  }
+
+  if (missingConfigs && missingConfigs.length > 0) {
+    console.log('');
+    console.log('  Tip: To enable OpenSDD gate rules for additional agents, create their');
+    console.log('  config files and re-run `opensdd sync`:');
+    for (const name of missingConfigs) {
+      console.log(`    ${name}`);
     }
   }
 

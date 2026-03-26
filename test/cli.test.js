@@ -182,8 +182,16 @@ describe('opensdd CLI', () => {
           )
         )
       );
-      assert.ok(fs.existsSync(path.join(TEST_PROJECT, 'GEMINI.md')));
-      assert.ok(fs.existsSync(path.join(TEST_PROJECT, 'AGENTS.md')));
+      // CLAUDE.md, GEMINI.md, AGENTS.md are NOT created — only patched if they exist
+      assert.ok(!fs.existsSync(path.join(TEST_PROJECT, 'GEMINI.md')));
+      assert.ok(!fs.existsSync(path.join(TEST_PROJECT, 'AGENTS.md')));
+      assert.ok(!fs.existsSync(path.join(TEST_PROJECT, 'CLAUDE.md')));
+
+      // Tip message shown for missing config files
+      assert.match(output, /Tip:.*gate rules/);
+      assert.match(output, /GEMINI\.md/);
+      assert.match(output, /AGENTS\.md/);
+      assert.match(output, /CLAUDE\.md/);
 
       // Verify opensdd.json content
       const manifest = JSON.parse(

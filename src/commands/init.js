@@ -145,10 +145,12 @@ export async function initCommand() {
 
   let warnings;
   let skillsChanged;
+  let missingConfigs;
   try {
     const result = installSkills(skillRoot, { mode });
     warnings = result.warnings;
     skillsChanged = result.anyChanged;
+    missingConfigs = result.missingConfigs;
   } catch (err) {
     console.error(`Error: Could not install skills: ${err.message}`);
     process.exit(1);
@@ -272,5 +274,14 @@ export async function initCommand() {
       `  ${specsDir}/spec.md            ${specMdCreated ? 'created (skeleton)' : 'already exists (preserved)'}`
     );
     console.log(`  ${depsDir}/             ${depsDirCreated ? 'created' : 'already exists'}`);
+  }
+
+  if (missingConfigs && missingConfigs.length > 0) {
+    console.log('');
+    console.log('  Tip: To enable OpenSDD gate rules for additional agents, create their');
+    console.log('  config files and re-run `opensdd sync`:');
+    for (const name of missingConfigs) {
+      console.log(`    ${name}`);
+    }
   }
 }
