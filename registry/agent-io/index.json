@@ -1,0 +1,10 @@
+{
+  "name": "agent-io",
+  "description": "Ingress/Egress gateway for agents allowing for multi-channel communication in Slack, email, etc.",
+  "latest": "0.0.1",
+  "versions": {
+    "0.0.1": {
+      "specFormat": "0.1.0"
+    }
+  }
+}
