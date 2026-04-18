@@ -96,7 +96,7 @@ For first-time implementation of a dependency spec.
 
 5. **Verify:** Execute the full verification protocol (see Verification Protocol section below): generate test suite → run tests until all pass (or SHOULD bail after 50 attempts) → dispatch subagent for spec compliance audit → fix any findings → re-run tests.
 
-6. **Record:** Update `opensdd.json` `dependencies` entry with `implementation` path, `tests` path, and `hasDeviations` if applicable.
+6. **Record:** Update the `opensdd.json` `dependencies.<name>` entry: set `implementedVersion` to the installed spec's `version`, set `tests` to the generated test file path, and set `hasDeviations` to `true` if a deviation was created during step 2. The agent MUST set `implementedVersion` only after verification in step 5 has succeeded.
 
 7. **Report:** Report results with spec coverage summary.
 
@@ -107,7 +107,8 @@ For first-time implementation of a dependency spec.
 3. Present the changes to the user: summarize what changed, flag stale deviations, and ask whether the user wants to adjust any deviations before proceeding.
 4. Patch implementation to conform to the new behavioral contract.
 5. Regenerate affected tests → run until all pass → dispatch subagent for spec compliance audit scoped to the changed sections → fix any findings → re-run tests.
-6. Tell the user to run `opensdd update apply <name>` to finalize the update in `opensdd.json`. The agent MUST always specify the spec name explicitly — it MUST NOT suggest or use the no-args batch form (`opensdd update apply` without a name).
+6. Tell the user to run `opensdd update apply <name>` to finalize the version bump in `opensdd.json`. The agent MUST always specify the spec name explicitly — it MUST NOT suggest or use the no-args batch form (`opensdd update apply` without a name).
+7. After the user confirms that `opensdd update apply <name>` has been run, the agent MUST update the `dependencies.<name>.implementedVersion` field in `opensdd.json` to match the new `version` the CLI just applied. This attests that the implementation has been brought into conformance with the new spec version. If the user skips the apply step, the agent MUST NOT set `implementedVersion` — leaving `version` and `implementedVersion` out of sync is the correct signal that the migration is incomplete.
 
 ### Check Conformance
 

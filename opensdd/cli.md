@@ -396,7 +396,7 @@ The install mode is resolved in this order:
 4. Fetch `index.json` from `registry/<name>/` in the configured registry source. If `[version]` is provided, use that version; otherwise use `latest` from `index.json`.
 5. Read `manifest.json` from `registry/<name>/<version>/` to get specFormat and dependencies.
 6. Copy all files from `registry/<name>/<version>/` into `<depsDir>/<name>/` (including `manifest.json`, `spec.md`, and any supplementary files).
-7. Add an entry to `opensdd.json` under `dependencies.<name>` with fields from `manifest.json` (`version`, `specFormat`), the resolved registry URL as `source`, and consumer-managed fields initialized to defaults: `implementation: null`, `tests: null`, `hasDeviations: false`.
+7. Add an entry to `opensdd.json` under `dependencies.<name>` with fields from `manifest.json` (`version`, `specFormat`), the resolved registry URL as `source`, and consumer-managed fields initialized to defaults: `implementedVersion: null`, `tests: null`, `hasDeviations: false`. If the existing entry (from a prior install of the same spec) contains a legacy `implementation` field, the CLI MUST drop it — it is not migrated into `implementedVersion` and not preserved.
 8. If the spec has `dependencies`, check whether each dependency name exists as a key in `opensdd.json`'s `dependencies` object. If any are missing, print a warning listing the missing dependencies and suggesting `opensdd install` for each.
 9. Print a success message.
 
@@ -412,7 +412,7 @@ When the resolved install mode is `"skill"`:
 4. Fetch `index.json` from `registry/<name>/` in the configured registry source. If `[version]` is provided, use that version; otherwise use `latest` from `index.json`.
 5. Fetch the `SKILL.md` from `registry/<name>/<version>/`. If no `SKILL.md` exists, generate one from `spec.md` using `generateSkillMd`. Also fetch any supplementary `.md` files (excluding `spec.md`, `manifest.json`, `deviations.md`).
 6. Install the skill files across all supported agent formats, following the same per-agent mapping used by `opensdd init` (see Skill Installation Mapping). The skill is installed under the spec's name (e.g., `.claude/skills/<name>/SKILL.md`). Supplementary `.md` files are placed in a `references/` subdirectory.
-7. Add an entry to `opensdd.json` under `dependencies.<name>` with `version`, `specFormat`, `source`, and `mode: "skill"`. Consumer-managed fields (`implementation`, `tests`, `hasDeviations`) are NOT included.
+7. Add an entry to `opensdd.json` under `dependencies.<name>` with `version`, `specFormat`, `source`, and `mode: "skill"`. Consumer-managed fields (`implementedVersion`, `tests`, `hasDeviations`) are NOT included.
 8. Print a success message.
 
 - `opensdd install slugify` in skill mode MUST install skill files across all agent formats and add a `slugify` entry to `opensdd.json` `dependencies` with `mode: "skill"`
@@ -519,7 +519,7 @@ Applies a staged update to `opensdd.json`, confirming that the migration is comp
 3. Prompt the user for confirmation (y/n). If declined, exit with code 0.
 4. For each pending update:
    a. Read `.opensdd.deps/.updates/<name>/manifest.json` to get the update metadata.
-   b. Update the `opensdd.json` `dependencies.<name>` entry: set `version`, `source`, and `specFormat` from the manifest. Preserve all consumer-managed fields (`implementation`, `tests`, `hasDeviations`).
+   b. Update the `opensdd.json` `dependencies.<name>` entry: set `version`, `source`, and `specFormat` from the manifest. Preserve all consumer-managed fields (`implementedVersion`, `tests`, `hasDeviations`) — the CLI MUST NOT modify `implementedVersion` during apply. If the entry contains a legacy `implementation` field, drop it (do not migrate, do not preserve). The divergence between `version` and `implementedVersion` after apply is the intended stale-implementation signal when the user ran `update apply` without first bringing the implementation into conformance.
    c. Delete the `.opensdd.deps/.updates/<name>/` directory.
 5. If `.opensdd.deps/.updates/` is now empty, delete it.
 6. Print a summary.
@@ -647,10 +647,12 @@ Authored spec:
 
 Installed dependencies:
 
-  slugify     v2.1.0  implemented       src/utils/slugify.ts
-  payments    v1.3.0  implemented       src/payments/index.ts    2 deviations
+  slugify     v2.1.0  implemented v2.1.0
+  payments    v1.4.0  stale (impl v1.3.0)                        2 deviations
   http-retry  v1.0.0  not implemented
 ```
+
+The status column for each dependency MUST be derived as: `not implemented` if `implementedVersion` is null; `implemented <implementedVersion>` if `implementedVersion === version`; `stale (impl <implementedVersion>)` if `implementedVersion !== version`.
 
 #### Errors
 
@@ -876,11 +878,13 @@ For local paths, the CLI MUST read directly from the filesystem. This supports d
 ### Consumer-Managed Field Preservation
 
 During `opensdd update apply`, the CLI MUST preserve these `opensdd.json` fields for each affected dependency entry:
-- `implementation`
+- `implementedVersion`
 - `tests`
 - `hasDeviations`
 
-The CLI reads the existing `opensdd.json` dependency entry, applies updated metadata from the staged manifest, then re-applies the consumer-managed field values. Note that `opensdd update` does NOT touch `opensdd.json` at all — it only stages the update. The `opensdd.json` entry continues to reflect the old version until `opensdd update apply` is called.
+The CLI reads the existing `opensdd.json` dependency entry, applies updated metadata from the staged manifest, then re-applies the consumer-managed field values. Note that `opensdd update` does NOT touch `opensdd.json` at all — it only stages the update. The `opensdd.json` entry continues to reflect the old version until `opensdd update apply` is called. Preserving `implementedVersion` across `update apply` is intentional: if the user ran `update apply` without bringing the implementation into conformance, the manifest will show `version !== implementedVersion` as a stale-implementation signal. The agent's Update workflow (see sdd-manager) is responsible for setting `implementedVersion` to the new version once conformance work is complete.
+
+Legacy `implementation` field: if present in an existing `opensdd.json` dependency entry, the CLI MUST ignore it — do not read it, do not preserve it across update apply, do not migrate its value into `implementedVersion`, and do not warn. The first write operation that touches the entry MUST drop the legacy field from the persisted manifest.
 
 ## Edge Cases
 
