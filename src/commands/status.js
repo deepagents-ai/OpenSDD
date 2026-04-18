@@ -44,10 +44,12 @@ export async function statusCommand() {
       const version = `v${entry.version}`.padEnd(8);
 
       let status;
-      if (entry.implementation) {
-        status = `implemented       ${entry.implementation}`;
-      } else {
+      if (entry.implementedVersion == null) {
         status = 'not implemented';
+      } else if (entry.implementedVersion === entry.version) {
+        status = `implemented v${entry.implementedVersion}`;
+      } else {
+        status = `stale (impl v${entry.implementedVersion})`;
       }
 
       // Check for deviations

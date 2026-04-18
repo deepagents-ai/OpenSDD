@@ -206,7 +206,7 @@ export async function installCommand(name, version, options) {
       version: resolvedVersion,
       source: registrySource,
       specFormat: specManifest.specFormat || '0.1.0',
-      implementation: existingEntry?.implementation ?? null,
+      implementedVersion: existingEntry?.implementedVersion ?? null,
       tests: existingEntry?.tests ?? null,
       hasDeviations: existingEntry?.hasDeviations ?? false,
     };

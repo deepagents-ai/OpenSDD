@@ -610,7 +610,7 @@ describe('opensdd CLI', () => {
         fs.readFileSync(path.join(TEST_PROJECT, 'opensdd.json'), 'utf-8')
       );
       assert.equal(manifest.dependencies.slugify.version, '1.1.0');
-      assert.equal(manifest.dependencies.slugify.implementation, null);
+      assert.equal(manifest.dependencies.slugify.implementedVersion, null);
       assert.equal(manifest.dependencies.slugify.tests, null);
       assert.equal(manifest.dependencies.slugify.hasDeviations, false);
     });
@@ -684,6 +684,23 @@ describe('opensdd CLI', () => {
       assert.equal(manifest.specsDir, undefined);
       assert.equal(manifest.depsDir, '.opensdd.deps');
       assert.ok(manifest.dependencies.slugify);
+    });
+
+    it('should drop legacy implementation field on re-install of stale entry', () => {
+      run(`install slugify --registry ${TEST_REGISTRY}`);
+      // Inject legacy implementation field
+      const manifestPath = path.join(TEST_PROJECT, 'opensdd.json');
+      const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
+      manifest.dependencies.slugify.implementation = 'src/slugify.js';
+      fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
+
+      // Remove directory to trigger stale re-install
+      fs.rmSync(path.join(TEST_PROJECT, '.opensdd.deps', 'slugify'), { recursive: true });
+      run(`install slugify --registry ${TEST_REGISTRY}`);
+
+      const updated = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
+      assert.equal(updated.dependencies.slugify.implementation, undefined);
+      assert.equal(updated.dependencies.slugify.implementedVersion, null);
     });
   });
 
@@ -801,7 +818,7 @@ describe('opensdd CLI', () => {
       // Set consumer fields
       const manifestPath = path.join(TEST_PROJECT, 'opensdd.json');
       const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
-      manifest.dependencies.slugify.implementation = 'src/slugify.js';
+      manifest.dependencies.slugify.implementedVersion = '1.0.0';
       manifest.dependencies.slugify.tests = 'test/slugify.test.js';
       manifest.dependencies.slugify.hasDeviations = true;
       fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
@@ -813,9 +830,27 @@ describe('opensdd CLI', () => {
 
       const updated = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
       assert.equal(updated.dependencies.slugify.version, '1.1.0');
-      assert.equal(updated.dependencies.slugify.implementation, 'src/slugify.js');
+      assert.equal(updated.dependencies.slugify.implementedVersion, '1.0.0');
       assert.equal(updated.dependencies.slugify.tests, 'test/slugify.test.js');
       assert.equal(updated.dependencies.slugify.hasDeviations, true);
+    });
+
+    it('should drop legacy implementation field on update apply', () => {
+      // Inject legacy implementation field
+      const manifestPath = path.join(TEST_PROJECT, 'opensdd.json');
+      const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
+      manifest.dependencies.slugify.implementation = 'src/slugify.js';
+      delete manifest.dependencies.slugify.implementedVersion;
+      fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
+
+      execSync(`echo "y" | node ${CLI} update apply slugify`, {
+        cwd: TEST_PROJECT,
+        encoding: 'utf-8',
+      });
+
+      const updated = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
+      assert.equal(updated.dependencies.slugify.implementation, undefined);
+      assert.equal(updated.dependencies.slugify.implementedVersion, null);
     });
 
     it('should handle no pending updates', () => {
@@ -856,6 +891,28 @@ describe('opensdd CLI', () => {
       assert.match(output, /Installed dependencies/);
       assert.match(output, /slugify/);
       assert.match(output, /not implemented/);
+    });
+
+    it('should show implemented status with version when implementedVersion matches version', () => {
+      run(`install slugify --registry ${TEST_REGISTRY}`);
+      const manifestPath = path.join(TEST_PROJECT, 'opensdd.json');
+      const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
+      manifest.dependencies.slugify.implementedVersion = '1.1.0';
+      fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
+
+      const output = run('status');
+      assert.match(output, /implemented v1\.1\.0/);
+    });
+
+    it('should show stale status when implementedVersion differs from version', () => {
+      run(`install slugify --registry ${TEST_REGISTRY}`);
+      const manifestPath = path.join(TEST_PROJECT, 'opensdd.json');
+      const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
+      manifest.dependencies.slugify.implementedVersion = '1.0.0';
+      fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
+
+      const output = run('status');
+      assert.match(output, /stale \(impl v1\.0\.0\)/);
     });
 
     it('should show authored spec when publish is configured', () => {
@@ -1071,7 +1128,7 @@ describe('opensdd CLI', () => {
       const manifest = JSON.parse(fs.readFileSync(path.join(TEST_PROJECT, 'opensdd.json'), 'utf-8'));
       assert.equal(manifest.dependencies.slugify.version, '1.1.0');
       assert.equal(manifest.dependencies.slugify.mode, 'skill');
-      assert.equal(manifest.dependencies.slugify.implementation, undefined);
+      assert.equal(manifest.dependencies.slugify.implementedVersion, undefined);
     });
 
     it('should reject already installed spec in skill mode', () => {

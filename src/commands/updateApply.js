@@ -99,14 +99,14 @@ export async function updateApplyCommand(name) {
     if (!manifest.dependencies) manifest.dependencies = {};
     const existing = manifest.dependencies[specName] || {};
 
+    const { implementation: _legacyImpl, ...existingRest } = existing;
     manifest.dependencies[specName] = {
-      ...existing,
+      ...existingRest,
       version: updateManifest.version,
       source: updateManifest.source,
       specFormat: updateManifest.specFormat,
-      // Preserve consumer-managed fields
-      implementation:
-        existing.implementation !== undefined ? existing.implementation : null,
+      implementedVersion:
+        existing.implementedVersion !== undefined ? existing.implementedVersion : null,
       tests: existing.tests !== undefined ? existing.tests : null,
       hasDeviations:
         existing.hasDeviations !== undefined ? existing.hasDeviations : false,
