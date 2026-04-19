@@ -1,13 +1,7 @@
 {
   "name": "agent-backend",
+  "version": "0.9.5",
+  "specFormat": "0.1.0",
   "description": "Client library and server daemon providing a unified API for agent-filesystem interaction within local or remote sandboxed workspaces",
-  "latest": "0.9.5",
-  "versions": {
-    "0.9.0": {
-      "spec_format": "0.1.0"
-    },
-    "0.9.5": {
-      "specFormat": "0.1.0"
-    }
-  }
+  "dependencies": []
 }
