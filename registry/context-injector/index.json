@@ -1,0 +1,10 @@
+{
+  "name": "context-injector",
+  "description": "Stable, dynamic, and turn-counter context injection for AI agent run loops",
+  "latest": "0.1.0",
+  "versions": {
+    "0.1.0": {
+      "specFormat": "0.1.0"
+    }
+  }
+}
