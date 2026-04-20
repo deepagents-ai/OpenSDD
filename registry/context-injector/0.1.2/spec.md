@@ -1,7 +1,3 @@
----
-name: context-injector
-description: "Context injection for AI agent run loops that attaches stable, dynamic, and turn-counter addenda to outgoing messages without mutating tool result payloads."
----
 # context-injector
 
 > Context injection for AI agent run loops that attaches stable, dynamic, and turn-counter addenda to outgoing messages without mutating tool result payloads.
