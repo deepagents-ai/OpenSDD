@@ -1,7 +1,3 @@
----
-name: context-compactor
-description: "Context window management for AI agent harnesses that use SDK-managed run loops, providing configurable compaction strategies to prevent context overflow during agentic tool-calling sessions."
----
 # context-compactor
 
 > Context window management for AI agent harnesses that use SDK-managed run loops, providing configurable compaction strategies to prevent context overflow during agentic tool-calling sessions.
