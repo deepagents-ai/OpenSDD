@@ -1,0 +1,7 @@
+{
+  "name": "context-compactor",
+  "version": "0.3.0",
+  "specFormat": "0.1.0",
+  "description": "Context window management for AI agent harnesses with SDK-managed run loops",
+  "dependencies": []
+}
