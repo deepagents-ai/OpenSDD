@@ -89,6 +89,7 @@ OpenSDD-driven (fresh):
 Initialized OpenSDD:
   Skills installed for: Claude Code, Codex CLI, Cursor, GitHub Copilot, Gemini CLI, Amp
     sdd-manager              installed (6 agent formats)
+    sdd-manager-authoring    installed (6 agent formats)
     sdd-generate             installed (6 agent formats)
   opensdd.json               created
   opensdd/                   created
@@ -101,6 +102,7 @@ OpenSDD-driven (monorepo sub-project, fresh):
 Initialized OpenSDD:
   Skills installed at repo root (/path/to/monorepo):
     sdd-manager              installed (6 agent formats)
+    sdd-manager-authoring    installed (6 agent formats)
     sdd-generate             installed (6 agent formats)
   opensdd.json (repo root)   created (workspace root)
   opensdd.json               created
@@ -140,11 +142,14 @@ Updates the project's installed skill files, gate rules, and CI workflow files t
 Synced OpenSDD:
   Skills installed for: Claude Code, Codex CLI, Cursor, GitHub Copilot, Gemini CLI, Amp
     sdd-manager              updated (6 agent formats)
+    sdd-manager-authoring    updated (6 agent formats)
     sdd-generate             updated (6 agent formats)
   Workflows:
     spec-merged.yml          updated
     claude-implement.yml     updated
 ```
+
+In consumer mode, the `sdd-manager-authoring` and `sdd-generate` lines are omitted — only `sdd-manager` is updated.
 
 #### Errors
 
@@ -153,7 +158,7 @@ Synced OpenSDD:
 
 ### Skill Installation Mapping
 
-`opensdd init` installs skills into the native configuration format of each supported coding agent. In **consumer mode**, only `sdd-manager` is installed. In **full (OpenSDD-driven) mode**, both `sdd-manager` and `sdd-generate` are installed. The canonical skill content is authored as markdown source files in `opensdd/skills/` (`skills/sdd-manager.md`, `skills/sdd-generate.md`) and `opensdd/` (`spec-format.md`). Source skill files use Agent Skills frontmatter (`name`, `description`) which the CLI parses and transforms per-agent format during installation.
+`opensdd init` installs skills into the native configuration format of each supported coding agent. In **consumer mode**, only `sdd-manager` is installed. In **full (OpenSDD-driven) mode**, `sdd-manager`, `sdd-manager-authoring`, and `sdd-generate` are installed. The canonical skill content is authored as markdown source files in `opensdd/skills/` (`skills/sdd-manager.md`, `skills/sdd-manager-authoring.md`, `skills/sdd-generate.md`) and `opensdd/` (`spec-format.md`). Source skill files use Agent Skills frontmatter (`name`, `description`) which the CLI parses and transforms per-agent format during installation.
 
 All installed skill files are **spec-owned** — they are overwritten on every `opensdd init` or `opensdd sync` and MUST NOT be edited by the user.
 
@@ -161,11 +166,21 @@ All installed skill files are **spec-owned** — they are overwritten on every `
 
 In addition to skill files, `opensdd init` installs a lightweight **gate rule** into each agent's always-loaded configuration. The gate rule ensures that any agent operating in the project is aware of the OpenSDD workflow requirement before touching spec-governed code — even if the agent has not yet loaded the full sdd-manager skill.
 
-The gate rule text is:
+The gate rule text is mode-dependent. The CLI MUST install the gate text corresponding to the resolved mode (`'full'` or `'consumer'`).
+
+**Consumer gate text** (used in both consumer mode and as the base of the full-mode gate):
 
 ```
-This project uses OpenSDD spec-driven development. Before implementing, modifying, or verifying any code governed by an OpenSDD spec, you MUST load and follow the sdd-manager skill/instructions first. Check `opensdd.json` and `.opensdd.deps/` to identify spec-governed code.
+This project consumes OpenSDD dependency specs. Before modifying code under `.opensdd.deps/` or any code that implements a dep's spec, you MUST load and follow the sdd-manager skill. Any change to spec-governed functionality MUST either preserve conformance (verify via the Check Conformance workflow) or be recorded via the Create Deviation workflow. Check `opensdd.json` and `.opensdd.deps/` to identify spec-governed code.
 ```
+
+**Full-mode gate text** (used only when `mode === 'full'`): the consumer gate text followed by this authoring addendum, separated by a blank line:
+
+```
+This project also authors its own OpenSDD spec under the directory named by `specsDir` in `opensdd.json`. Behavior changes to the authored spec MUST go through the Revise or Propose workflow defined in the sdd-manager-authoring skill. Implementation of the authored spec is governed by the same rules as dependency implementation — verify conformance or catalog deviations.
+```
+
+The consumer gate text does NOT assert that "all changes to code must be spec-driven." It only constrains changes to spec-governed functionality — code under `.opensdd.deps/` or code that implements a dep's spec. Unrelated code in a consumer project is not spec-governed.
 
 The gate rule is installed into each agent's always-loaded file:
 
@@ -196,7 +211,9 @@ Each skill is a directory with a `SKILL.md` and a `references/` subdirectory. Cl
     SKILL.md                    ← skills/sdd-manager.md
     references/
       spec-format.md            ← spec-format.md
-  sdd-generate/
+  sdd-manager-authoring/        ← full mode only
+    SKILL.md                    ← skills/sdd-manager-authoring.md
+  sdd-generate/                 ← full mode only
     SKILL.md                    ← skills/sdd-generate.md
     references/
       spec-format.md            ← spec-format.md
@@ -214,7 +231,9 @@ Codex CLI follows the same Agent Skills standard but discovers skills in `.agent
     SKILL.md                    ← skills/sdd-manager.md
     references/
       spec-format.md            ← spec-format.md
-  sdd-generate/
+  sdd-manager-authoring/        ← full mode only
+    SKILL.md                    ← skills/sdd-manager-authoring.md
+  sdd-generate/                 ← full mode only
     SKILL.md                    ← skills/sdd-generate.md
     references/
       spec-format.md            ← spec-format.md
@@ -228,7 +247,8 @@ Cursor discovers rules as `.md` or `.mdc` files in `.cursor/rules/`. Each skill 
 .cursor/rules/
   opensdd-gate.md                 ← gate rule with alwaysApply: true (see Always-On Gate Rule)
   sdd-manager.md                  ← skills/sdd-manager.md with Cursor frontmatter
-  sdd-generate.md                 ← skills/sdd-generate.md with Cursor frontmatter
+  sdd-manager-authoring.md        ← skills/sdd-manager-authoring.md with Cursor frontmatter (full mode only)
+  sdd-generate.md                 ← skills/sdd-generate.md with Cursor frontmatter (full mode only)
   opensdd-spec-format.md          ← spec-format.md with Cursor frontmatter
 ```
 
@@ -243,6 +263,14 @@ Frontmatter for `sdd-manager.md`:
 ```yaml
 ---
 description: "Implement, update, and verify installed OpenSDD dependency specs. Use when the user asks to implement a spec, process a spec update, check conformance, or create a deviation."
+alwaysApply: false
+---
+```
+
+Frontmatter for `sdd-manager-authoring.md` (full mode only):
+```yaml
+---
+description: "Authoring extension to sdd-manager — revise authored specs and propose spec changes for CI-driven implementation. Use when the user asks to revise a spec, propose a spec change, or prefixes a message with 'Propose:'."
 alwaysApply: false
 ---
 ```
@@ -272,9 +300,10 @@ The gate rule is installed in `.github/copilot-instructions.md` (always loaded b
 ```
 .github/copilot-instructions.md  ← gate rule in managed section (see Always-On Gate Rule)
 .github/instructions/
-  sdd-manager.instructions.md   ← skills/sdd-manager.md with Copilot frontmatter
-  sdd-generate.instructions.md  ← skills/sdd-generate.md with Copilot frontmatter
-  opensdd-spec-format.instructions.md  ← spec-format.md with Copilot frontmatter
+  sdd-manager.instructions.md            ← skills/sdd-manager.md with Copilot frontmatter
+  sdd-manager-authoring.instructions.md  ← skills/sdd-manager-authoring.md with Copilot frontmatter (full mode only)
+  sdd-generate.instructions.md           ← skills/sdd-generate.md with Copilot frontmatter (full mode only)
+  opensdd-spec-format.instructions.md    ← spec-format.md with Copilot frontmatter
 ```
 
 Frontmatter for `sdd-manager.instructions.md`:
@@ -282,6 +311,14 @@ Frontmatter for `sdd-manager.instructions.md`:
 ---
 applyTo: "**"
 description: "Implement, update, and verify installed OpenSDD dependency specs. Use when the user asks to implement a spec, process a spec update, check conformance, or create a deviation."
+---
+```
+
+Frontmatter for `sdd-manager-authoring.instructions.md` (full mode only):
+```yaml
+---
+applyTo: "**"
+description: "Authoring extension to sdd-manager — revise authored specs and propose spec changes for CI-driven implementation. Use when the user asks to revise a spec, propose a spec change, or prefixes a message with 'Propose:'."
 ---
 ```
 
@@ -305,13 +342,25 @@ description: "OpenSDD spec format reference. Defines the structure and rules for
 
 Gemini CLI discovers `GEMINI.md` files in the project directory and supports `@file.md` import syntax for referencing other files. Rather than duplicating skill content, the CLI appends import directives to `GEMINI.md` that reference the canonical skill files from the Claude Code installation. The CLI only patches `GEMINI.md` if it already exists — it does not create the file.
 
-Appended to `GEMINI.md`:
+Appended to `GEMINI.md` (consumer mode):
 ```markdown
 <!-- OpenSDD Skills (managed by opensdd — do not edit this section) -->
-This project uses OpenSDD spec-driven development. Before implementing, modifying, or verifying any code governed by an OpenSDD spec, you MUST load and follow the sdd-manager skill/instructions first. Check `opensdd.json` and `.opensdd.deps/` to identify spec-governed code.
+{consumer gate text — see Always-On Gate Rule}
 
 @.claude/skills/sdd-manager/SKILL.md
 @.claude/skills/sdd-manager/references/spec-format.md
+```
+
+Appended to `GEMINI.md` (full mode):
+```markdown
+<!-- OpenSDD Skills (managed by opensdd — do not edit this section) -->
+{consumer gate text — see Always-On Gate Rule}
+
+{authoring addendum — see Always-On Gate Rule}
+
+@.claude/skills/sdd-manager/SKILL.md
+@.claude/skills/sdd-manager/references/spec-format.md
+@.claude/skills/sdd-manager-authoring/SKILL.md
 @.claude/skills/sdd-generate/SKILL.md
 @.claude/skills/sdd-generate/references/spec-format.md
 ```
@@ -322,13 +371,25 @@ The CLI MUST only modify the clearly delimited OpenSDD section. If a `GEMINI.md`
 
 Amp and Codex CLI discover `AGENTS.md` files in the project directory and support `@` reference syntax for including other files. The CLI appends references to `AGENTS.md` that point to the canonical skill files. The CLI only patches `AGENTS.md` if it already exists — it does not create the file.
 
-Appended to `AGENTS.md`:
+Appended to `AGENTS.md` (consumer mode):
 ```markdown
 <!-- OpenSDD Skills (managed by opensdd — do not edit this section) -->
-This project uses OpenSDD spec-driven development. Before implementing, modifying, or verifying any code governed by an OpenSDD spec, you MUST load and follow the sdd-manager skill/instructions first. Check `opensdd.json` and `.opensdd.deps/` to identify spec-governed code.
+{consumer gate text — see Always-On Gate Rule}
 
 @.claude/skills/sdd-manager/SKILL.md
 @.claude/skills/sdd-manager/references/spec-format.md
+```
+
+Appended to `AGENTS.md` (full mode):
+```markdown
+<!-- OpenSDD Skills (managed by opensdd — do not edit this section) -->
+{consumer gate text — see Always-On Gate Rule}
+
+{authoring addendum — see Always-On Gate Rule}
+
+@.claude/skills/sdd-manager/SKILL.md
+@.claude/skills/sdd-manager/references/spec-format.md
+@.claude/skills/sdd-manager-authoring/SKILL.md
 @.claude/skills/sdd-generate/SKILL.md
 @.claude/skills/sdd-generate/references/spec-format.md
 ```
@@ -955,3 +1016,6 @@ Legacy `implementation` field: if present in an existing `opensdd.json` dependen
 - `opensdd setup-ci --dry-run` MUST NOT create labels, set secrets, or write workflow files
 - The bundled workflow files MUST be embedded in the package, not fetched from a remote
 - `opensdd sync` MUST update existing CI workflow files to the current bundled versions
+- `sdd-manager-authoring` MUST only be installed when `mode === 'full'`. It MUST NOT be present in consumer-only installations.
+- The gate rule text installed into every always-loaded file MUST correspond to the resolved mode: consumer gate in consumer mode, consumer gate + authoring addendum in full mode.
+- The consumer gate text MUST NOT assert any constraint on code that is not spec-governed (i.e., not under `.opensdd.deps/` and not an implementation of a dep's spec).

@@ -1,17 +1,19 @@
 ---
-description: "Manage OpenSDD specs — revise authored specs, implement dependency specs, process updates, check conformance, create deviations, and propose spec changes for CI-driven implementation. Use when the user asks to revise a spec, implement a spec, process a spec update, check conformance, create a deviation, propose a spec change, or prefixes a message with 'Propose:'."
+description: "Implement, update, and verify installed OpenSDD dependency specs. Use when the user asks to implement a spec, process a spec update, check conformance, or create a deviation. Authoring workflows (Revise, Propose) live in the sdd-manager-authoring extension — installed only in OpenSDD-authored projects."
 alwaysApply: false
 ---
 
 # SDD Manager
 
-> Teaches agents how to revise authored specs, and implement, update, and verify dependency specs in an OpenSDD-compliant project.
+> Teaches agents how to implement, update, and verify installed OpenSDD dependency specs. In OpenSDD-authored projects, the `sdd-manager-authoring` extension adds the Revise and Propose workflows for changes to the project's authored spec.
 
 ## Overview
 
-The sdd-manager skill is installed per project via `opensdd init` (first time) or `opensdd sync` (updates) alongside the sdd-generate skill, into each supported coding agent's configuration directory. It teaches agents six workflows: revising an authored spec, implementing a dependency spec, processing a dependency spec update, checking conformance, creating deviations, and proposing spec changes for CI-driven implementation. It also defines universal implementation defaults, the project conventions check, and the verification protocol that apply to all spec implementations.
+The sdd-manager skill is installed per project via `opensdd init` (first time) or `opensdd sync` (updates) into each supported coding agent's configuration directory. It teaches agents four core workflows: implementing a dependency spec, processing a dependency spec update, checking conformance, and creating deviations. It also defines universal implementation defaults, the project conventions check, and the verification protocol that apply to all spec implementations.
 
-This skill is the required entry point whenever an agent works with OpenSDD specs — whether revising the project's authored spec, implementing a dependency spec, processing a dependency update, checking conformance, creating a deviation, or proposing a spec change. The agent MUST NOT implement or modify code based on an OpenSDD spec outside of the workflows defined here.
+This skill is the required entry point whenever an agent works with OpenSDD dependency specs — whether implementing a dependency spec, processing a dependency update, checking conformance, or creating a deviation. The agent MUST NOT implement or modify code based on an OpenSDD spec outside of the workflows defined here or in the authoring extension.
+
+In projects that also author their own OpenSDD spec (`specsDir` present in `opensdd.json`), the **sdd-manager-authoring** extension is installed alongside this skill and adds the Revise and Propose workflows. Consumer-only projects (no `specsDir`) do not install the authoring extension — the rules in this file are the full contract for such projects.
 
 ## Spec as Source of Truth
 
@@ -34,50 +36,19 @@ Format:
 
 Examples:
 
-> **[sdd-manager: Revise]** opensdd/cli.md
-> I'll draft a changeset for your review before modifying the spec.
-
 > **[sdd-manager: Implement]** .opensdd.deps/slugify/spec.md
 > I'll walk you through the spec, then implement and verify.
 
 > **[sdd-manager: Update]** .opensdd.deps/slugify
 > Reading the staged changeset to identify what changed.
 
-> **[sdd-manager: Propose]** opensdd/cli.md
-> I'll create a spec-only PR for CI-driven implementation.
+The announcement tag is always `[sdd-manager: ...]` regardless of which skill file defines the workflow (core or authoring extension) — these tags are referenced by CI configs and MUST NOT be renamed.
 
 If the agent determines the wrong workflow was triggered, it MUST stop and clarify with the user before proceeding.
 
-- **Propose**: User says "propose", "Propose:", "submit spec", "create spec PR", "send spec for implementation", or has staged/modified `.sdd.md` files and asks to "push" or "submit" them. A message prefixed with "Propose:" MUST be routed to the Propose workflow. Route to the Propose workflow.
+If the user asks to "revise the spec", "propose a spec change", "submit a spec", or prefixes a message with "Propose:", the agent MUST consult the `sdd-manager-authoring` extension for those workflows. If the authoring extension is not installed (consumer-only project), the agent MUST inform the user that authoring workflows are unavailable in this project — these requests should be made in the upstream project that owns the spec.
 
 ## Workflows
-
-### Revise
-
-For incremental changes to the project's authored spec. The agent drafts a changeset for the user to review before modifying the spec or implementation.
-
-1. **Understand the request.** Read the user's description of the desired behavior change. Read the current spec from `<specsDir>/` (`spec.md` and any supplementary files).
-
-2. **Draft changeset.** Write a changeset to `<specsDir>/.changes/changeset.md` containing:
-   - **Rationale:** Why this change is being made — the user's request, the problem it solves, and any design decisions.
-   - **Changed Files:** For each spec file being modified, a unified diff showing the proposed changes. For new sections being added, show the full proposed content as an addition.
-
-   The changeset MUST be persisted to disk (not kept in conversation context) so it survives context window clears. The agent MUST NOT modify spec files or implementation code during this step.
-
-3. **Review.** Present the changeset to the user. Summarize what's changing and why. The user may:
-   - **Approve** — proceed to step 4.
-   - **Request modifications** — the agent updates the changeset and re-presents. The agent MUST re-read the changeset from disk before modifying it.
-   - **Reject** — delete `<specsDir>/.changes/` and stop.
-
-   The agent MUST NOT proceed past this step without explicit user approval.
-
-4. **Apply to spec.** Apply the approved diffs to the spec files. Delete `<specsDir>/.changes/` after successful application.
-
-5. **Implement.** Update the implementation to match the revised spec. Use the changeset to identify which behavioral sections changed — only modify code affected by the changes. The agent MUST re-read the updated spec sections directly (not work from the changeset diffs) when implementing.
-
-6. **Verify.** Execute the verification protocol (see Verification Protocol section below) scoped to the changed sections: regenerate affected tests, run until all pass, dispatch subagent for spec compliance audit scoped to the changed sections, fix any findings, re-run tests.
-
-7. **Report.** Summarize what changed in the spec and implementation. If the project has `publish` configured in `opensdd.json`, remind the user to bump the version before publishing.
 
 ### Implement
 
@@ -97,7 +68,7 @@ For first-time implementation of a dependency spec.
 
 5. **Verify:** Execute the full verification protocol (see Verification Protocol section below): generate test suite → run tests until all pass (or SHOULD bail after 50 attempts) → dispatch subagent for spec compliance audit → fix any findings → re-run tests.
 
-6. **Record:** Update `opensdd.json` `dependencies` entry with `implementation` path, `tests` path, and `hasDeviations` if applicable.
+6. **Record:** Update the `opensdd.json` `dependencies.<name>` entry: set `implementedVersion` to the installed spec's `version`, set `tests` to the generated test file path, and set `hasDeviations` to `true` if a deviation was created during step 2. The agent MUST set `implementedVersion` only after verification in step 5 has succeeded.
 
 7. **Report:** Report results with spec coverage summary.
 
@@ -108,7 +79,8 @@ For first-time implementation of a dependency spec.
 3. Present the changes to the user: summarize what changed, flag stale deviations, and ask whether the user wants to adjust any deviations before proceeding.
 4. Patch implementation to conform to the new behavioral contract.
 5. Regenerate affected tests → run until all pass → dispatch subagent for spec compliance audit scoped to the changed sections → fix any findings → re-run tests.
-6. Tell the user to run `opensdd update apply <name>` to finalize the update in `opensdd.json`. The agent MUST always specify the spec name explicitly — it MUST NOT suggest or use the no-args batch form (`opensdd update apply` without a name).
+6. Tell the user to run `opensdd update apply <name>` to finalize the version bump in `opensdd.json`. The agent MUST always specify the spec name explicitly — it MUST NOT suggest or use the no-args batch form (`opensdd update apply` without a name).
+7. After the user confirms that `opensdd update apply <name>` has been run, the agent MUST update the `dependencies.<name>.implementedVersion` field in `opensdd.json` to match the new `version` the CLI just applied. This attests that the implementation has been brought into conformance with the new spec version. If the user skips the apply step, the agent MUST NOT set `implementedVersion` — leaving `version` and `implementedVersion` out of sync is the correct signal that the migration is incomplete.
 
 ### Check Conformance
 
@@ -118,47 +90,24 @@ Run existing test suite → report pass/fail. If test suite is missing or stale,
 
 Determine affected spec section → classify type → create/append to `deviations.md` in `.opensdd.deps/<name>/` → update test suite to skip affected tests → update `hasDeviations` in `opensdd.json`.
 
-### Propose
+## Divergence Cataloging
 
-The async, PR-driven counterpart to Revise. The agent drafts spec changes the same way as Revise, but instead of asking the user for approval in the CLI and implementing locally, it opens a PR — the PR review is the approval gate, and implementation happens in CI after merge.
+Spec-governed code is any implementation code that satisfies an installed dependency spec. This includes code produced during the Implement or Update workflows and any later edits to that code.
 
-The agent MUST execute all steps end-to-end without pausing for user confirmation. The Propose workflow is a single uninterrupted flow from understanding the request through PR creation — the agent MUST NOT stop to ask the user whether to proceed at any intermediate step. The PR itself is the review mechanism.
+When an agent is about to modify spec-governed code in a way that may alter behavior, it MUST ensure one of the following before the change lands:
 
-1. **Understand the request.** Read the user's description of the desired behavior change. Read the current spec from `<specsDir>/` (`spec.md` and any supplementary files). This is the same as Revise step 1.
+- **Preserve conformance.** If the intent is to keep the behavior described by the spec, the agent MUST execute the Check Conformance workflow after the change (run the existing test suite; if tests are missing or stale, regenerate and re-run; dispatch the spec compliance audit subagent). Any conformance issue surfaced MUST be fixed before the change is considered complete.
+- **Catalog as deviation.** If the intent is to intentionally diverge from the spec's behavior, the agent MUST execute the Create Deviation workflow before or alongside the change. This includes appending an entry to `deviations.md` in the affected `.opensdd.deps/<name>/` directory, updating the test suite to skip affected tests with a reference to the deviation, and setting `hasDeviations: true` in the `opensdd.json` dependency entry.
 
-2. **Draft changeset.** Write a changeset to `<specsDir>/.changes/changeset.md` containing:
-   - **Rationale:** Why this change is being made — the user's request, the problem it solves, and any design decisions.
-   - **Changed Files:** For each spec file being modified, a unified diff showing the proposed changes. For new sections being added, show the full proposed content as an addition.
+Identifying spec-governed code:
 
-   The changeset MUST be persisted to disk (not kept in conversation context) so it survives context window clears. The agent MUST NOT modify spec files or implementation code during this step. This is the same as Revise step 2.
+- Files referenced by a dependency entry's `tests` field in `opensdd.json`, and all production code those tests exercise, are spec-governed.
+- Files generated or modified during an Implement or Update workflow for a given dependency are spec-governed until the spec itself is changed (which is handled by the upstream publisher, not this project).
+- When in doubt, the agent MUST ask the user whether the code being edited implements a dep's spec before proceeding.
 
-3. **Apply to spec.** Apply the diffs from the changeset to the spec files. Delete `<specsDir>/.changes/` after successful application. Unlike Revise, there is no CLI approval gate — the PR serves as the review mechanism.
+The agent MUST NOT land a silent divergence from spec — every intentional divergence is documented in `deviations.md`, and every non-divergent change is verified for conformance.
 
-4. **Resolve scope.** Resolve the nearest `opensdd.json` from the current working directory. All subsequent steps operate relative to the directory containing this manifest (the **package root**). Determine the **package name** from: `opensdd.json` `name` field, falling back to `publish.name`, falling back to the package root directory name. Determine the **package path** as the relative path from the git repository root to the package root (empty string for repo-root projects).
-
-5. **Create a feature branch.** Create a new branch from the current branch. The naming convention depends on whether the project is a monorepo (non-empty package path): monorepo projects use `opensdd/<package-name>/<spec-name>`, repo-root projects use `opensdd/<spec-name>`. The `<spec-name>` is derived from the primary spec filename or the changeset rationale. If a branch with that name already exists, prompt the user for a suffix or alternative name.
-
-6. **Stage spec files only.** Stage only the spec files within `<specsDir>/` and any `.sdd.md` files within the package root, plus any related spec assets (e.g., supplementary files referenced by the spec). The agent MUST NOT stage implementation files, test files, or other non-spec changes. If the working tree has non-spec changes, leave them unstaged.
-
-7. **Commit.** Commit the staged spec files with a conventional commit message:
-   ```
-   spec(<package-name>): <brief description of the spec change>
-   ```
-   For repo-root projects (empty package path), omit the scope: `spec: <brief description>`. The agent SHOULD derive the description from the spec content or filenames.
-
-8. **Push.** Push the feature branch to the remote.
-
-9. **Create PR.** Create a pull request targeting the base branch:
-   - **Title:** `spec(<package-name>): <brief description>` (or `spec: <brief description>` for repo-root projects)
-   - **Labels:** `spec`
-   - **Body:** Include the changeset rationale, a summary of the spec changes, a note explaining that merging this PR will trigger auto-implementation via GitHub Actions, and an **OpenSDD metadata block** (see spec-format.md "PR Metadata Block" section) that encodes the package name and path for CI consumption.
-
-10. **Clean up local state.** Switch the local working tree back to the branch that was active before the Propose workflow started (typically `main`). This ensures the developer's local state is clean and not left on the spec branch.
-
-11. **Confirm.** Output the PR URL and explain to the user that:
-    - Merging the PR will automatically create an implementation issue
-    - `claude-code-action` will pick up the issue and open an implementation PR
-    - No local implementation work is needed — the CI pipeline handles it
+This rule applies in both consumer-only and OpenSDD-authored projects. In OpenSDD-authored projects it is additive to the authoring extension's Revise/Propose workflows (which govern changes to the authored spec itself, not to dep-implementation code).
 
 ## Universal Implementation Defaults
 

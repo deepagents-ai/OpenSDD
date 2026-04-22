@@ -8,7 +8,16 @@ const __dirname = path.dirname(__filename);
 const OPENSDD_SECTION_START = '<!-- OpenSDD Skills (managed by opensdd \u2014 do not edit this section) -->';
 const OPENSDD_SECTION_END = '<!-- /OpenSDD Skills -->';
 
-const GATE_TEXT = `This project uses OpenSDD spec-driven development. Before implementing, modifying, or verifying any code governed by an OpenSDD spec, you MUST load and follow the sdd-manager skill/instructions first. Check \`opensdd.json\` and \`.opensdd.deps/\` to identify spec-governed code.`;
+const CONSUMER_GATE_TEXT = `This project consumes OpenSDD dependency specs. Before modifying code under \`.opensdd.deps/\` or any code that implements a dep's spec, you MUST load and follow the sdd-manager skill. Any change to spec-governed functionality MUST either preserve conformance (verify via the Check Conformance workflow) or be recorded via the Create Deviation workflow. Check \`opensdd.json\` and \`.opensdd.deps/\` to identify spec-governed code.`;
+
+const FULL_GATE_ADDENDUM = `This project also authors its own OpenSDD spec under the directory named by \`specsDir\` in \`opensdd.json\`. Behavior changes to the authored spec MUST go through the Revise or Propose workflow defined in the sdd-manager-authoring skill. Implementation of the authored spec is governed by the same rules as dependency implementation — verify conformance or catalog deviations.`;
+
+function gateTextFor(mode) {
+  if (mode === 'full') {
+    return `${CONSUMER_GATE_TEXT}\n\n${FULL_GATE_ADDENDUM}`;
+  }
+  return CONSUMER_GATE_TEXT;
+}
 
 function parseFrontmatter(content) {
   if (!content.startsWith('---\n')) return { frontmatter: {}, body: content };
@@ -33,6 +42,7 @@ function getSkillContent() {
   const skillsDir = path.join(opensddDir, 'skills');
   return {
     sddManager: fs.readFileSync(path.join(skillsDir, 'sdd-manager.md'), 'utf-8'),
+    sddManagerAuthoring: fs.readFileSync(path.join(skillsDir, 'sdd-manager-authoring.md'), 'utf-8'),
     sddGenerate: fs.readFileSync(path.join(skillsDir, 'sdd-generate.md'), 'utf-8'),
     specFormat: fs.readFileSync(path.join(opensddDir, 'spec-format.md'), 'utf-8'),
   };
@@ -241,12 +251,13 @@ export function installSkills(projectRoot, { mode = 'full' } = {}) {
   const skills = getSkillContent();
   const warnings = [];
   const isFull = mode === 'full';
+  const gateText = gateTextFor(mode);
   let anyChanged = false;
 
   // 0. Always-on gate rule (Claude Code)
   if (writeIfChanged(
     path.join(projectRoot, '.claude', 'rules', 'opensdd-gate.md'),
-    GATE_TEXT + '\n'
+    gateText + '\n'
   )) anyChanged = true;
 
   // 1. Claude Code (critical — Gemini and Amp depend on this)
@@ -260,6 +271,10 @@ export function installSkills(projectRoot, { mode = 'full' } = {}) {
     skills.specFormat
   )) anyChanged = true;
   if (isFull) {
+    if (writeIfChanged(
+      path.join(claudeBase, 'sdd-manager-authoring', 'SKILL.md'),
+      skills.sddManagerAuthoring
+    )) anyChanged = true;
     if (writeIfChanged(
       path.join(claudeBase, 'sdd-generate', 'SKILL.md'),
       skills.sddGenerate
@@ -283,6 +298,10 @@ export function installSkills(projectRoot, { mode = 'full' } = {}) {
     );
     if (isFull) {
       writeFileSync(
+        path.join(codexBase, 'sdd-manager-authoring', 'SKILL.md'),
+        skills.sddManagerAuthoring
+      );
+      writeFileSync(
         path.join(codexBase, 'sdd-generate', 'SKILL.md'),
         skills.sddGenerate
       );
@@ -301,7 +320,7 @@ export function installSkills(projectRoot, { mode = 'full' } = {}) {
     ensureDir(cursorBase);
 
     // Gate rule (alwaysApply: true)
-    writeFileSync(path.join(cursorBase, 'opensdd-gate.md'), `---\nalwaysApply: true\n---\n\n${GATE_TEXT}\n`);
+    writeFileSync(path.join(cursorBase, 'opensdd-gate.md'), `---\nalwaysApply: true\n---\n\n${gateText}\n`);
 
     const { frontmatter: managerFm, body: managerBody } = parseFrontmatter(skills.sddManager);
 
@@ -323,6 +342,17 @@ ${skills.specFormat}`;
     writeFileSync(path.join(cursorBase, 'opensdd-spec-format.md'), specFormatCursor);
 
     if (isFull) {
+      const { frontmatter: authoringFm, body: authoringBody } = parseFrontmatter(skills.sddManagerAuthoring);
+
+      const sddManagerAuthoringCursor = `---
+description: "${authoringFm.description}"
+alwaysApply: false
+---
+
+${authoringBody}`;
+
+      writeFileSync(path.join(cursorBase, 'sdd-manager-authoring.md'), sddManagerAuthoringCursor);
+
       const { frontmatter: generateFm, body: generateBody } = parseFrontmatter(skills.sddGenerate);
 
       const sddGenerateCursor = `---
@@ -346,7 +376,7 @@ ${generateBody}`;
     // Gate rule in copilot-instructions.md (patch only — do not create)
     const copilotInstructionsPath = path.join(projectRoot, '.github', 'copilot-instructions.md');
     if (fs.existsSync(copilotInstructionsPath)) {
-      updateManagedSection(copilotInstructionsPath, GATE_TEXT);
+      updateManagedSection(copilotInstructionsPath, gateText);
     }
 
     const { frontmatter: managerFmCp, body: managerBodyCp } = parseFrontmatter(skills.sddManager);
@@ -361,6 +391,13 @@ ${generateBody}`;
     );
 
     if (isFull) {
+      const { frontmatter: authoringFmCp, body: authoringBodyCp } = parseFrontmatter(skills.sddManagerAuthoring);
+
+      writeFileSync(
+        path.join(copilotBase, 'sdd-manager-authoring.instructions.md'),
+        `---\napplyTo: "**"\ndescription: "${authoringFmCp.description}"\n---\n\n${authoringBodyCp}`
+      );
+
       const { frontmatter: generateFmCp, body: generateBodyCp } = parseFrontmatter(skills.sddGenerate);
 
       writeFileSync(
@@ -377,10 +414,11 @@ ${generateBody}`;
   try {
     const geminiPath = path.join(projectRoot, 'GEMINI.md');
     if (fs.existsSync(geminiPath)) {
-      let geminiBody = `${GATE_TEXT}\n\n@.claude/skills/sdd-manager/SKILL.md
+      let geminiBody = `${gateText}\n\n@.claude/skills/sdd-manager/SKILL.md
 @.claude/skills/sdd-manager/references/spec-format.md`;
       if (isFull) {
-        geminiBody += `\n@.claude/skills/sdd-generate/SKILL.md
+        geminiBody += `\n@.claude/skills/sdd-manager-authoring/SKILL.md
+@.claude/skills/sdd-generate/SKILL.md
 @.claude/skills/sdd-generate/references/spec-format.md`;
       }
       updateManagedSection(geminiPath, geminiBody);
@@ -395,10 +433,11 @@ ${generateBody}`;
   try {
     const ampPath = path.join(projectRoot, 'AGENTS.md');
     if (fs.existsSync(ampPath)) {
-      let ampBody = `${GATE_TEXT}\n\n@.claude/skills/sdd-manager/SKILL.md
+      let ampBody = `${gateText}\n\n@.claude/skills/sdd-manager/SKILL.md
 @.claude/skills/sdd-manager/references/spec-format.md`;
       if (isFull) {
-        ampBody += `\n@.claude/skills/sdd-generate/SKILL.md
+        ampBody += `\n@.claude/skills/sdd-manager-authoring/SKILL.md
+@.claude/skills/sdd-generate/SKILL.md
 @.claude/skills/sdd-generate/references/spec-format.md`;
       }
       updateManagedSection(ampPath, ampBody);
@@ -413,7 +452,7 @@ ${generateBody}`;
   try {
     const claudeMdPath = path.join(projectRoot, 'CLAUDE.md');
     if (fs.existsSync(claudeMdPath)) {
-      updateManagedSection(claudeMdPath, GATE_TEXT);
+      updateManagedSection(claudeMdPath, gateText);
     } else {
       missingConfigs.push('CLAUDE.md');
     }

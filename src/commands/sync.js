@@ -73,6 +73,7 @@ export async function syncCommand() {
   }
   console.log('    sdd-manager              updated (6 agent formats)');
   if (mode === 'full') {
+    console.log('    sdd-manager-authoring    updated (6 agent formats)');
     console.log('    sdd-generate             updated (6 agent formats)');
   }
   if (updatedWorkflows.length > 0) {

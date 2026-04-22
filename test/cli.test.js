@@ -170,6 +170,31 @@ describe('opensdd CLI', () => {
         )
       );
       assert.ok(
+        fs.existsSync(
+          path.join(TEST_PROJECT, '.claude', 'skills', 'sdd-manager-authoring', 'SKILL.md')
+        )
+      );
+      assert.ok(
+        fs.existsSync(
+          path.join(TEST_PROJECT, '.agents', 'skills', 'sdd-manager-authoring', 'SKILL.md')
+        )
+      );
+      assert.ok(
+        fs.existsSync(
+          path.join(TEST_PROJECT, '.cursor', 'rules', 'sdd-manager-authoring.md')
+        )
+      );
+      assert.ok(
+        fs.existsSync(
+          path.join(
+            TEST_PROJECT,
+            '.github',
+            'instructions',
+            'sdd-manager-authoring.instructions.md'
+          )
+        )
+      );
+      assert.ok(
         fs.existsSync(path.join(TEST_PROJECT, '.cursor', 'rules', 'sdd-manager.md'))
       );
       assert.ok(
@@ -285,6 +310,42 @@ describe('opensdd CLI', () => {
       assert.ok(
         !fs.existsSync(path.join(TEST_PROJECT, '.cursor', 'rules', 'sdd-generate.md'))
       );
+
+      // Verify no sdd-manager-authoring skill files (consumer mode excludes authoring)
+      assert.ok(
+        !fs.existsSync(
+          path.join(TEST_PROJECT, '.claude', 'skills', 'sdd-manager-authoring', 'SKILL.md')
+        )
+      );
+      assert.ok(
+        !fs.existsSync(
+          path.join(TEST_PROJECT, '.agents', 'skills', 'sdd-manager-authoring', 'SKILL.md')
+        )
+      );
+      assert.ok(
+        !fs.existsSync(
+          path.join(TEST_PROJECT, '.cursor', 'rules', 'sdd-manager-authoring.md')
+        )
+      );
+      assert.ok(
+        !fs.existsSync(
+          path.join(
+            TEST_PROJECT,
+            '.github',
+            'instructions',
+            'sdd-manager-authoring.instructions.md'
+          )
+        )
+      );
+
+      // Consumer gate text should mention consuming deps, not "spec-driven development"
+      const gate = fs.readFileSync(
+        path.join(TEST_PROJECT, '.claude', 'rules', 'opensdd-gate.md'),
+        'utf-8'
+      );
+      assert.match(gate, /consumes OpenSDD dependency specs/);
+      assert.doesNotMatch(gate, /spec-driven development/);
+      assert.doesNotMatch(gate, /sdd-manager-authoring skill/);
 
       // Verify sdd-manager IS installed
       assert.ok(
@@ -407,6 +468,7 @@ describe('opensdd CLI', () => {
       const output = run('sync', TEST_PROJECT, { input: 'n\n' });
       assert.match(output, /Synced OpenSDD/);
       assert.match(output, /sdd-manager\s+updated \(6 agent formats\)/);
+      assert.match(output, /sdd-manager-authoring\s+updated \(6 agent formats\)/);
       assert.match(output, /sdd-generate\s+updated \(6 agent formats\)/);
 
       // Verify skill files still exist
@@ -417,9 +479,22 @@ describe('opensdd CLI', () => {
       );
       assert.ok(
         fs.existsSync(
+          path.join(TEST_PROJECT, '.claude', 'skills', 'sdd-manager-authoring', 'SKILL.md')
+        )
+      );
+      assert.ok(
+        fs.existsSync(
           path.join(TEST_PROJECT, '.claude', 'skills', 'sdd-generate', 'SKILL.md')
         )
       );
+
+      // Full-mode gate text should include both consumer text and authoring addendum
+      const gate = fs.readFileSync(
+        path.join(TEST_PROJECT, '.claude', 'rules', 'opensdd-gate.md'),
+        'utf-8'
+      );
+      assert.match(gate, /consumes OpenSDD dependency specs/);
+      assert.match(gate, /sdd-manager-authoring skill/);
     });
 
     it('should update skill files in a consumer-mode project', () => {
@@ -431,8 +506,9 @@ describe('opensdd CLI', () => {
       assert.match(output, /Synced OpenSDD/);
       assert.match(output, /sdd-manager\s+updated \(6 agent formats\)/);
 
-      // Consumer mode should NOT have sdd-generate in output
+      // Consumer mode should NOT have sdd-generate or sdd-manager-authoring in output
       assert.doesNotMatch(output, /sdd-generate/);
+      assert.doesNotMatch(output, /sdd-manager-authoring/);
 
       // Verify sdd-manager installed
       assert.ok(
@@ -1411,9 +1487,9 @@ describe('readWorkflowFile', () => {
   });
 });
 
-describe('sdd-manager skill Propose: routing', () => {
-  it('should include Propose: prefix in skill description', () => {
-    const skillPath = path.resolve('opensdd/skills/sdd-manager.md');
+describe('sdd-manager-authoring Propose: routing', () => {
+  it('should include Propose: prefix in authoring skill description', () => {
+    const skillPath = path.resolve('opensdd/skills/sdd-manager-authoring.md');
     const content = fs.readFileSync(skillPath, 'utf-8');
 
     // Verify the description includes Propose: prefix routing
@@ -1421,14 +1497,14 @@ describe('sdd-manager skill Propose: routing', () => {
   });
 
   it('should route Propose: prefixed messages to the Propose workflow', () => {
-    const skillPath = path.resolve('opensdd/skills/sdd-manager.md');
+    const skillPath = path.resolve('opensdd/skills/sdd-manager-authoring.md');
     const content = fs.readFileSync(skillPath, 'utf-8');
 
     // Verify Propose: MUST be routed
     assert.match(content, /A message prefixed with "Propose:" MUST be routed to the Propose workflow/);
   });
 
-  it('should install sdd-manager with Propose: routing via init', () => {
+  it('should install sdd-manager-authoring with Propose: routing via full-mode init', () => {
     const testDir = path.join('/tmp', 'opensdd-test-propose');
     fs.rmSync(testDir, { recursive: true, force: true });
     fs.mkdirSync(testDir, { recursive: true });
@@ -1445,12 +1521,12 @@ describe('sdd-manager skill Propose: routing', () => {
       timeout: 15000,
     });
 
-    // Verify installed skill includes Propose: routing
-    const claudeSkill = fs.readFileSync(
-      path.join(testDir, '.claude', 'skills', 'sdd-manager', 'SKILL.md'),
+    // Verify installed authoring skill includes Propose: routing
+    const authoringSkill = fs.readFileSync(
+      path.join(testDir, '.claude', 'skills', 'sdd-manager-authoring', 'SKILL.md'),
       'utf-8'
     );
-    assert.match(claudeSkill, /Propose:/);
+    assert.match(authoringSkill, /Propose:/);
 
     fs.rmSync(testDir, { recursive: true, force: true });
   });

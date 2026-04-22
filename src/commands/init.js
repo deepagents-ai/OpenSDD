@@ -260,6 +260,7 @@ export async function initCommand() {
       );
     }
     console.log(`    sdd-manager              ${skillVerb} (6 agent formats)`);
+    console.log(`    sdd-manager-authoring    ${skillVerb} (6 agent formats)`);
     console.log(`    sdd-generate             ${skillVerb} (6 agent formats)`);
     if (skillRootDiffers) {
       console.log(

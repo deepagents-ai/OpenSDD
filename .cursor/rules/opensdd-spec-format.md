@@ -315,7 +315,7 @@ The `opensdd.json` file is the project-level manifest. It lives at the project r
       "version": "2.1.0",
       "source": "https://github.com/deepagents-ai/opensdd",
       "specFormat": "0.1.0",
-      "implementation": null,
+      "implementedVersion": null,
       "tests": null,
       "hasDeviations": false
     }
@@ -358,7 +358,7 @@ The root manifest allows repo-level commands (e.g., `opensdd setup-ci`) to detec
 - `version` (required): Semver version of the installed spec.
 - `source` (required): URL of the registry this spec was installed from.
 - `specFormat` (required): OpenSDD protocol version of the installed spec.
-- `implementation` (consumer-managed): Path to the generated implementation file, `null` until implemented.
+- `implementedVersion` (consumer-managed): Semver string recording the spec version the implementation was last brought into conformance with. `null` until the spec has been implemented. When `implementedVersion` differs from `version`, the implementation is considered stale relative to the installed spec.
 - `tests` (consumer-managed): Path to the generated test file, `null` until implemented.
 - `hasDeviations` (consumer-managed): Boolean, `false` until a deviation is created.
 
@@ -556,6 +556,7 @@ Specs use semantic versioning:
 - Only the H1 header, blockquote summary, and `## Behavioral Contract` are required. All other sections (Edge Cases, NOT Specified, Invariants, Options / Configuration, Implementation Hints) are recommended but optional.
 - A spec dependency that is not installed: the implementing agent MUST warn the user but MAY proceed if the dependent types can be inferred from context.
 - `deviations.md` referencing a spec section removed in an update: the agent SHOULD flag the deviation as potentially stale during the Update workflow.
+- Legacy `implementation` field in `opensdd.json` dependency entries (from pre-`implementedVersion` manifests): tooling MUST ignore the field — it MUST NOT be read, written, migrated, or warned about. Consumers with legacy manifests get `implementedVersion: null` treatment on the next operation that touches the entry.
 - Extra fields in a dependency's `opensdd.json` entry beyond those defined by this format: extra fields MUST be preserved during updates and MUST NOT cause errors.
 - Circular spec dependencies (A depends on B, B depends on A): not currently supported. The implementing agent MUST detect and report the cycle rather than recursing infinitely.
 - `opensdd.json` dependency entry exists but spec directory is missing in `.opensdd.deps/`: the CLI MUST warn and offer to re-install from registry.
