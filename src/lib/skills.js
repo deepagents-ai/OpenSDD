@@ -247,12 +247,31 @@ export function installDependencySkill(projectRoot, name, skillMd, supplementary
   return warnings;
 }
 
+function pruneOrphanSkills(projectRoot, mode) {
+  if (mode !== 'consumer') return;
+  const orphans = [
+    path.join(projectRoot, '.claude', 'skills', 'sdd-manager-authoring'),
+    path.join(projectRoot, '.claude', 'skills', 'sdd-generate'),
+    path.join(projectRoot, '.agents', 'skills', 'sdd-manager-authoring'),
+    path.join(projectRoot, '.agents', 'skills', 'sdd-generate'),
+    path.join(projectRoot, '.cursor', 'rules', 'sdd-manager-authoring.md'),
+    path.join(projectRoot, '.cursor', 'rules', 'sdd-generate.md'),
+    path.join(projectRoot, '.github', 'instructions', 'sdd-manager-authoring.instructions.md'),
+    path.join(projectRoot, '.github', 'instructions', 'sdd-generate.instructions.md'),
+  ];
+  for (const p of orphans) {
+    fs.rmSync(p, { recursive: true, force: true });
+  }
+}
+
 export function installSkills(projectRoot, { mode = 'full' } = {}) {
   const skills = getSkillContent();
   const warnings = [];
   const isFull = mode === 'full';
   const gateText = gateTextFor(mode);
   let anyChanged = false;
+
+  pruneOrphanSkills(projectRoot, mode);
 
   // 0. Always-on gate rule (Claude Code)
   if (writeIfChanged(

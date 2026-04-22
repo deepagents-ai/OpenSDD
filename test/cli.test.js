@@ -524,6 +524,48 @@ describe('opensdd CLI', () => {
       assert.equal(result.exitCode, 1);
     });
 
+    it('should prune orphan skills when mode downgrades from full to consumer', () => {
+      // Init as full mode
+      run('init', TEST_PROJECT, { input: '2\n' });
+
+      // Verify full-mode skills are present
+      const orphanPaths = [
+        path.join(TEST_PROJECT, '.claude', 'skills', 'sdd-manager-authoring'),
+        path.join(TEST_PROJECT, '.claude', 'skills', 'sdd-generate'),
+        path.join(TEST_PROJECT, '.agents', 'skills', 'sdd-manager-authoring'),
+        path.join(TEST_PROJECT, '.agents', 'skills', 'sdd-generate'),
+        path.join(TEST_PROJECT, '.cursor', 'rules', 'sdd-manager-authoring.md'),
+        path.join(TEST_PROJECT, '.cursor', 'rules', 'sdd-generate.md'),
+        path.join(TEST_PROJECT, '.github', 'instructions', 'sdd-manager-authoring.instructions.md'),
+        path.join(TEST_PROJECT, '.github', 'instructions', 'sdd-generate.instructions.md'),
+      ];
+      for (const p of orphanPaths) {
+        assert.ok(fs.existsSync(p), `expected ${p} to exist after full init`);
+      }
+
+      // Downgrade to consumer by removing specsDir from opensdd.json
+      const manifestPath = path.join(TEST_PROJECT, 'opensdd.json');
+      const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
+      delete manifest.specsDir;
+      fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
+
+      // Run sync — should prune orphans
+      run('sync');
+
+      // Verify orphan files are gone
+      for (const p of orphanPaths) {
+        assert.ok(!fs.existsSync(p), `expected ${p} to be pruned after consumer sync`);
+      }
+
+      // Verify sdd-manager still installed across formats
+      assert.ok(
+        fs.existsSync(path.join(TEST_PROJECT, '.claude', 'skills', 'sdd-manager', 'SKILL.md'))
+      );
+      assert.ok(
+        fs.existsSync(path.join(TEST_PROJECT, '.cursor', 'rules', 'sdd-manager.md'))
+      );
+    });
+
     it('should not modify opensdd.json', () => {
       run('init', TEST_PROJECT, { input: '2\n' });
 

@@ -126,13 +126,15 @@ Updates the project's installed skill files, gate rules, and CI workflow files t
 2. Determine mode from the resolved manifest: if `specsDir` is present, `mode = 'full'`; otherwise `mode = 'consumer'`.
 3. Determine the skill installation root (same logic as `opensdd init`): if inside a git repository, use the git root; otherwise use the current working directory.
 4. Re-install/update all skill files and gate rules across all supported agent formats for the determined mode. Use the same Skill Installation Mapping as `opensdd init`. Overwrite all existing skill files — they are spec-owned.
-5. **Update CI workflow files.** If `.github/workflows/` exists at the skill installation root and contains OpenSDD workflow files (`spec-merged.yml` and/or `claude-implement.yml`), overwrite them with the current bundled versions. Workflow files are spec-owned — like skill files, they are always overwritten on sync. Only overwrite files that already exist; do not create new workflow files (that is `setup-ci`'s responsibility).
-6. If the skill installation root differs from the current working directory (monorepo), print the skill installation path.
-7. If `mode === 'full'` and CI is not already configured (no `.github/workflows/claude-implement.yml` exists at the git root), prompt: "Would you like to set up CI-driven spec implementation? (opensdd setup-ci) [y/N]". If the user confirms, run the `setup-ci` command.
-8. Print a summary of what was updated.
+5. **Prune orphans.** Remove any spec-owned skill files on disk that do not belong to the resolved mode. Specifically, when `mode === 'consumer'`, the CLI MUST remove (if present) the `sdd-manager-authoring` and `sdd-generate` skill installations across all agent formats: `.claude/skills/sdd-manager-authoring/`, `.claude/skills/sdd-generate/`, `.agents/skills/sdd-manager-authoring/`, `.agents/skills/sdd-generate/`, `.cursor/rules/sdd-manager-authoring.md`, `.cursor/rules/sdd-generate.md`, `.github/instructions/sdd-manager-authoring.instructions.md`, `.github/instructions/sdd-generate.instructions.md`. The managed-section `@` imports in `GEMINI.md` / `AGENTS.md` / `.github/copilot-instructions.md` are already pruned via full-section replacement in step 4. The cleanup is silent if the files do not exist — it is not an error. The CLI MUST NOT delete user-owned files — only the spec-owned skill installations are removed.
+6. **Update CI workflow files.** If `.github/workflows/` exists at the skill installation root and contains OpenSDD workflow files (`spec-merged.yml` and/or `claude-implement.yml`), overwrite them with the current bundled versions. Workflow files are spec-owned — like skill files, they are always overwritten on sync. Only overwrite files that already exist; do not create new workflow files (that is `setup-ci`'s responsibility).
+7. If the skill installation root differs from the current working directory (monorepo), print the skill installation path.
+8. If `mode === 'full'` and CI is not already configured (no `.github/workflows/claude-implement.yml` exists at the git root), prompt: "Would you like to set up CI-driven spec implementation? (opensdd setup-ci) [y/N]". If the user confirms, run the `setup-ci` command.
+9. Print a summary of what was updated.
 
 - `opensdd sync` MUST NOT create or modify `opensdd.json`
 - `opensdd sync` MUST overwrite all skill files unconditionally (they are spec-owned)
+- `opensdd sync` MUST remove spec-owned skill files that do not belong to the resolved mode (e.g., remove `sdd-manager-authoring` and `sdd-generate` artifacts when `mode === 'consumer'`). Cleanup is silent when the files are absent.
 - `opensdd sync` MUST overwrite existing CI workflow files unconditionally (they are spec-owned)
 - `opensdd sync` MUST NOT create CI workflow files that do not already exist (use `opensdd setup-ci` for initial installation)
 
@@ -973,6 +975,7 @@ Legacy `implementation` field: if present in an existing `opensdd.json` dependen
 - Running `opensdd sync` when workflow files exist: overwrite them with the current bundled versions. Do not prompt — they are spec-owned.
 - Running `opensdd sync` when only one workflow file exists (e.g., `claude-implement.yml` but not `spec-merged.yml`): only overwrite the file that exists. Do not create the missing one.
 - Running `opensdd sync` when no workflow files exist: do not create them. Prompt for `setup-ci` if mode is full (existing behavior).
+- Running `opensdd sync` after switching from full mode to consumer mode (user removed `specsDir` from `opensdd.json`): prune the orphan `sdd-manager-authoring` and `sdd-generate` skill files from all agent formats. The managed OpenSDD sections in user-owned files (CLAUDE.md / AGENTS.md / GEMINI.md / copilot-instructions.md) are rewritten by step 4; the user-owned files themselves are not deleted.
 - Running `opensdd setup-ci` from the repo root of a monorepo: finds the root `opensdd.json` and proceeds. The CI setup is repo-scoped (labels, secrets, workflows), not package-scoped.
 - Running `opensdd setup-ci` in a repo that already has partial CI setup (some labels exist, workflows exist but secret is missing): each step checks independently and skips what already exists.
 - Running `opensdd setup-ci` when `gh` is installed but not authenticated: detect via `gh auth status` exit code and print a clear error before any mutations.
