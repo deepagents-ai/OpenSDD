@@ -1,7 +1,3 @@
----
-name: agent-io
-description: "The gateway process for an agent harness: ingests messages from external channels, funnels them through a unified pipeline into a launcher that calls the agent, and dispatches the agent's outbound messages back to target channels."
----
 # agent-io
 
 > The gateway process for an agent harness: ingests messages from external channels, funnels them through a unified pipeline into a launcher that calls the agent, and dispatches the agent's outbound messages back to target channels.
