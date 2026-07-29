@@ -600,7 +600,60 @@ describe('opensdd CLI', () => {
       );
       assert.match(gemini, /# My Custom Instructions/);
       assert.match(gemini, /OpenSDD Skills/);
-      assert.match(gemini, /@\.claude\/skills\/sdd-manager\/SKILL\.md/);
+      assert.match(gemini, /@AGENTS\.md/);
+      assert.doesNotMatch(gemini, /@\.claude\/skills/);
+    });
+
+    it('should centralize instructions and consolidate legacy managed sections', () => {
+      const legacySection = `<!-- OpenSDD Skills (managed by opensdd init — do not edit this section) -->
+legacy instructions
+<!-- /OpenSDD Skills -->`;
+      const currentSection = `<!-- OpenSDD Skills (managed by opensdd — do not edit this section) -->
+stale instructions
+<!-- /OpenSDD Skills -->`;
+      const originalAgents = `# Project instructions\n\nBefore.  \n\n${legacySection}\n \nBetween.\n\n${currentSection}\n\nAfter.\n\n`;
+      fs.writeFileSync(path.join(TEST_PROJECT, 'AGENTS.md'), originalAgents);
+      fs.writeFileSync(
+        path.join(TEST_PROJECT, 'CLAUDE.md'),
+        `# Claude instructions\n\n${legacySection}\n`
+      );
+      fs.writeFileSync(
+        path.join(TEST_PROJECT, 'GEMINI.md'),
+        '# Gemini instructions\n\n<!-- OpenSDD Skills (managed by opensdd init — do not edit this section) -->\nunterminated instructions\n'
+      );
+
+      run('init', TEST_PROJECT, { input: '2\n' });
+
+      const agentsPath = path.join(TEST_PROJECT, 'AGENTS.md');
+      const claudePath = path.join(TEST_PROJECT, 'CLAUDE.md');
+      const geminiPath = path.join(TEST_PROJECT, 'GEMINI.md');
+      const agents = fs.readFileSync(agentsPath, 'utf-8');
+      const claude = fs.readFileSync(claudePath, 'utf-8');
+      const gemini = fs.readFileSync(geminiPath, 'utf-8');
+      const marker = /<!-- OpenSDD Skills \(managed by opensdd — do not edit this section\) -->/g;
+
+      assert.equal(agents.match(marker)?.length, 1);
+      assert.match(agents, /Before\./);
+      assert.match(agents, /Between\./);
+      assert.match(agents, /After\./);
+      assert.match(agents, /@\.claude\/skills\/sdd-manager\/SKILL\.md/);
+      assert.doesNotMatch(agents, /legacy instructions|stale instructions/);
+      const managedSectionPattern = /<!-- OpenSDD Skills \(managed by opensdd(?: init)? — do not edit this section\) -->[\s\S]*?<!-- \/OpenSDD Skills -->/g;
+      assert.equal(
+        agents.replace(managedSectionPattern, ''),
+        originalAgents.replace(managedSectionPattern, '')
+      );
+
+      for (const importedConfig of [claude, gemini]) {
+        assert.equal(importedConfig.match(marker)?.length, 1);
+        assert.match(importedConfig, /@AGENTS\.md/);
+        assert.doesNotMatch(importedConfig, /@\.claude\/skills|dependency specs/);
+      }
+
+      run('sync', TEST_PROJECT, { input: 'n\n' });
+      assert.equal(fs.readFileSync(agentsPath, 'utf-8'), agents);
+      assert.equal(fs.readFileSync(claudePath, 'utf-8'), claude);
+      assert.equal(fs.readFileSync(geminiPath, 'utf-8'), gemini);
     });
 
     it('should work in monorepo sub-project', () => {
@@ -1219,6 +1272,22 @@ describe('opensdd CLI', () => {
     });
 
     it('should install a spec as a skill across agent formats', () => {
+      const staleSection = `<!-- OpenSDD Skills (managed by opensdd init — do not edit this section) -->
+stale instructions
+<!-- /OpenSDD Skills -->`;
+      fs.writeFileSync(
+        path.join(TEST_PROJECT, 'AGENTS.md'),
+        `# Shared instructions\n\n${staleSection}\n`
+      );
+      fs.writeFileSync(
+        path.join(TEST_PROJECT, 'CLAUDE.md'),
+        `# Claude\n\n${staleSection}\n`
+      );
+      fs.writeFileSync(
+        path.join(TEST_PROJECT, 'GEMINI.md'),
+        `# Gemini\n\n${staleSection}\n`
+      );
+
       const output = run(`install slugify --registry ${TEST_REGISTRY}`);
       assert.match(output, /Installed slugify v1\.1\.0 as skill/);
       assert.match(output, /Skills installed for/);
@@ -1238,6 +1307,25 @@ describe('opensdd CLI', () => {
 
       // Verify Copilot instruction
       assert.ok(fs.existsSync(path.join(TEST_PROJECT, '.github', 'instructions', 'slugify.instructions.md')));
+
+      // Verify project instructions remain centralized in AGENTS.md
+      const agents = fs.readFileSync(path.join(TEST_PROJECT, 'AGENTS.md'), 'utf-8');
+      const claude = fs.readFileSync(path.join(TEST_PROJECT, 'CLAUDE.md'), 'utf-8');
+      const gemini = fs.readFileSync(path.join(TEST_PROJECT, 'GEMINI.md'), 'utf-8');
+      assert.match(agents, /@\.claude\/skills\/slugify\/SKILL\.md/);
+      assert.match(agents, /This project consumes OpenSDD dependency specs/);
+      assert.match(claude, /@AGENTS\.md/);
+      assert.match(gemini, /@AGENTS\.md/);
+      assert.doesNotMatch(claude, /skills\/slugify/);
+      assert.doesNotMatch(gemini, /skills\/slugify/);
+      assert.doesNotMatch(agents, /stale instructions/);
+      assert.doesNotMatch(claude, /stale instructions/);
+      assert.doesNotMatch(gemini, /stale instructions/);
+
+      // Sync must preserve installed dependency skill imports
+      run('sync', TEST_PROJECT, { input: 'n\n' });
+      const syncedAgents = fs.readFileSync(path.join(TEST_PROJECT, 'AGENTS.md'), 'utf-8');
+      assert.match(syncedAgents, /@\.claude\/skills\/slugify\/SKILL\.md/);
 
       // Verify no spec files in .opensdd.deps
       assert.ok(!fs.existsSync(path.join(TEST_PROJECT, '.opensdd.deps', 'slugify')));

@@ -161,7 +161,18 @@ export async function installCommand(name, version, options) {
       }
     }
 
-    const warnings = installDependencySkill(projectRoot, name, skillMd, supplementaryFiles);
+    const dependencySkillNames = Object.entries(deps)
+      .filter(([, dependency]) => dependency.mode === 'skill')
+      .map(([dependencyName]) => dependencyName);
+    dependencySkillNames.push(name);
+    const mode = manifest.specsDir ? 'full' : 'consumer';
+    const warnings = installDependencySkill(
+      projectRoot,
+      name,
+      skillMd,
+      supplementaryFiles,
+      { mode, dependencySkillNames }
+    );
     for (const warning of warnings) {
       console.warn(`Warning: ${warning}`);
     }

@@ -7,6 +7,7 @@ const __dirname = path.dirname(__filename);
 
 const OPENSDD_SECTION_START = '<!-- OpenSDD Skills (managed by opensdd \u2014 do not edit this section) -->';
 const OPENSDD_SECTION_END = '<!-- /OpenSDD Skills -->';
+const OPENSDD_SECTION_START_PATTERN = /<!-- OpenSDD Skills \(managed by opensdd(?: init)? — do not edit this section\) -->/;
 
 const CONSUMER_GATE_TEXT = `This project consumes OpenSDD dependency specs. Before modifying code under \`.opensdd.deps/\` or any code that implements a dep's spec, you MUST load and follow the sdd-manager skill. Any change to spec-governed functionality MUST either preserve conformance (verify via the Check Conformance workflow) or be recorded via the Create Deviation workflow. Check \`opensdd.json\` and \`.opensdd.deps/\` to identify spec-governed code.`;
 
@@ -70,81 +71,115 @@ function writeIfChanged(filePath, content) {
   return true;
 }
 
-/**
- * Update a managed section in a file (GEMINI.md or AGENTS.md).
- * Creates the file if it doesn't exist.
- * Only modifies the clearly delimited OpenSDD section.
- */
-function updateManagedSection(filePath, sectionBody) {
-  let content = '';
-  if (fs.existsSync(filePath)) {
-    content = fs.readFileSync(filePath, 'utf-8');
+function findManagedSections(content) {
+  const sections = [];
+  let searchOffset = 0;
+
+  while (searchOffset < content.length) {
+    const match = content.slice(searchOffset).match(OPENSDD_SECTION_START_PATTERN);
+    if (!match) break;
+
+    const start = searchOffset + match.index;
+    const bodyStart = start + match[0].length;
+    const endMarkerStart = content.indexOf(OPENSDD_SECTION_END, bodyStart);
+    if (endMarkerStart === -1) {
+      sections.push({ start, end: content.length, body: content.slice(bodyStart) });
+      break;
+    }
+
+    sections.push({
+      start,
+      end: endMarkerStart + OPENSDD_SECTION_END.length,
+      body: content.slice(bodyStart, endMarkerStart),
+    });
+    searchOffset = endMarkerStart + OPENSDD_SECTION_END.length;
   }
 
-  const sectionContent = `${OPENSDD_SECTION_START}\n${sectionBody}\n${OPENSDD_SECTION_END}`;
+  return sections;
+}
 
-  const startIdx = content.indexOf(OPENSDD_SECTION_START);
-  const endIdx = content.indexOf(OPENSDD_SECTION_END);
-
-  if (startIdx !== -1 && endIdx !== -1) {
-    // Replace existing section
-    content =
-      content.substring(0, startIdx) +
-      sectionContent +
-      content.substring(endIdx + OPENSDD_SECTION_END.length);
-  } else if (startIdx !== -1) {
-    // Start marker exists but no end marker — replace from start to end
-    content = content.substring(0, startIdx) + sectionContent;
-  } else {
-    // No existing section — append
-    if (content.length > 0 && !content.endsWith('\n')) {
-      content += '\n';
-    }
-    if (content.length > 0) {
-      content += '\n';
-    }
-    content += sectionContent + '\n';
+function removeManagedSections(content, sections) {
+  let result = '';
+  let contentOffset = 0;
+  for (const section of sections) {
+    result += content.slice(contentOffset, section.start);
+    contentOffset = section.end;
   }
-
-  fs.writeFileSync(filePath, content);
+  return result + content.slice(contentOffset);
 }
 
 /**
- * Append a line to the managed section in a file (GEMINI.md or AGENTS.md).
- * Creates the file and section if they don't exist.
- * If the line is already present in the section, does nothing.
+ * Update an OpenSDD managed section, consolidating current and legacy sections.
  */
-function appendToManagedSection(filePath, line) {
-  let content = '';
-  if (fs.existsSync(filePath)) {
-    content = fs.readFileSync(filePath, 'utf-8');
+function updateManagedSection(filePath, sectionBody) {
+  const content = fs.existsSync(filePath)
+    ? fs.readFileSync(filePath, 'utf-8')
+    : '';
+  const sections = findManagedSections(content);
+  const userContent = removeManagedSections(content, sections);
+  const sectionContent = `${OPENSDD_SECTION_START}\n${sectionBody}\n${OPENSDD_SECTION_END}`;
+  if (sections.length > 0) {
+    const insertionIndex = sections[0].start;
+    const updatedContent =
+      userContent.slice(0, insertionIndex) +
+      sectionContent +
+      userContent.slice(insertionIndex);
+    fs.writeFileSync(filePath, updatedContent);
+    return;
   }
 
-  const startIdx = content.indexOf(OPENSDD_SECTION_START);
-  const endIdx = content.indexOf(OPENSDD_SECTION_END);
+  const separator = userContent.length > 0
+    ? userContent.endsWith('\n') ? '\n' : '\n\n'
+    : '';
+  fs.writeFileSync(filePath, `${userContent}${separator}${sectionContent}\n`);
+}
 
-  if (startIdx !== -1 && endIdx !== -1) {
-    // Section exists — check if line is already there
-    const sectionBody = content.substring(startIdx + OPENSDD_SECTION_START.length, endIdx);
-    if (sectionBody.includes(line)) return;
-
-    // Insert the line before the end marker
-    const before = content.substring(0, endIdx);
-    const after = content.substring(endIdx);
-    content = before + line + '\n' + after;
-  } else {
-    // No section — create one with the line
-    const sectionContent = `${OPENSDD_SECTION_START}\n${line}\n${OPENSDD_SECTION_END}`;
-    if (content.length > 0 && !content.endsWith('\n')) {
-      content += '\n';
-    }
-    if (content.length > 0) {
-      content += '\n';
-    }
-    content += sectionContent + '\n';
+function buildAgentsBody(mode, dependencySkillNames = []) {
+  const skillReferences = [
+    '@.claude/skills/sdd-manager/SKILL.md',
+    '@.claude/skills/sdd-manager/references/spec-format.md',
+  ];
+  if (mode === 'full') {
+    skillReferences.push(
+      '@.claude/skills/sdd-manager-authoring/SKILL.md',
+      '@.claude/skills/sdd-generate/SKILL.md',
+      '@.claude/skills/sdd-generate/references/spec-format.md'
+    );
+  }
+  for (const name of [...dependencySkillNames].sort()) {
+    skillReferences.push(`@.claude/skills/${name}/SKILL.md`);
   }
 
-  fs.writeFileSync(filePath, content);
+  return `${gateTextFor(mode)}\n\n${skillReferences.join('\n')}`;
+}
+
+function updateProjectInstructionFiles(projectRoot, mode, dependencySkillNames = []) {
+  const warnings = [];
+  const missingConfigs = [];
+  const configs = [
+    { name: 'GEMINI.md', body: '@AGENTS.md', warning: 'Could not install Gemini CLI skills' },
+    {
+      name: 'AGENTS.md',
+      body: buildAgentsBody(mode, dependencySkillNames),
+      warning: 'Could not install Amp skills',
+    },
+    { name: 'CLAUDE.md', body: '@AGENTS.md', warning: 'Could not patch CLAUDE.md' },
+  ];
+
+  for (const config of configs) {
+    const filePath = path.join(projectRoot, config.name);
+    if (!fs.existsSync(filePath)) {
+      missingConfigs.push(config.name);
+      continue;
+    }
+    try {
+      updateManagedSection(filePath, config.body);
+    } catch (err) {
+      warnings.push(`${config.warning}: ${err.message}`);
+    }
+  }
+
+  return { warnings, missingConfigs };
 }
 
 /**
@@ -178,7 +213,13 @@ export function generateSkillMd(specContent) {
  * The skillMd is a SKILL.md string (with frontmatter). supplementaryFiles is an
  * object mapping filename -> content for additional .md reference files.
  */
-export function installDependencySkill(projectRoot, name, skillMd, supplementaryFiles = {}) {
+export function installDependencySkill(
+  projectRoot,
+  name,
+  skillMd,
+  supplementaryFiles = {},
+  { mode = 'consumer', dependencySkillNames = [name] } = {}
+) {
   const warnings = [];
   const { frontmatter, body } = parseFrontmatter(skillMd);
 
@@ -222,27 +263,13 @@ export function installDependencySkill(projectRoot, name, skillMd, supplementary
     warnings.push(`Could not install GitHub Copilot skill for ${name}: ${err.message}`);
   }
 
-  // 5. Gemini CLI (patch only — do not create GEMINI.md)
-  try {
-    const geminiPath = path.join(projectRoot, 'GEMINI.md');
-    if (fs.existsSync(geminiPath)) {
-      const geminiRef = `@.claude/skills/${name}/SKILL.md`;
-      appendToManagedSection(geminiPath, geminiRef);
-    }
-  } catch (err) {
-    warnings.push(`Could not install Gemini CLI skill for ${name}: ${err.message}`);
-  }
-
-  // 6. Amp (patch only — do not create AGENTS.md)
-  try {
-    const ampPath = path.join(projectRoot, 'AGENTS.md');
-    if (fs.existsSync(ampPath)) {
-      const ampRef = `@.claude/skills/${name}/SKILL.md`;
-      appendToManagedSection(ampPath, ampRef);
-    }
-  } catch (err) {
-    warnings.push(`Could not install Amp skill for ${name}: ${err.message}`);
-  }
+  // 5. Project instruction files (patch only — do not create)
+  const instructionResult = updateProjectInstructionFiles(
+    projectRoot,
+    mode,
+    dependencySkillNames
+  );
+  warnings.push(...instructionResult.warnings);
 
   return warnings;
 }
@@ -264,7 +291,10 @@ function pruneOrphanSkills(projectRoot, mode) {
   }
 }
 
-export function installSkills(projectRoot, { mode = 'full' } = {}) {
+export function installSkills(
+  projectRoot,
+  { mode = 'full', dependencySkillNames = [] } = {}
+) {
   const skills = getSkillContent();
   const warnings = [];
   const isFull = mode === 'full';
@@ -428,56 +458,14 @@ ${generateBody}`;
     warnings.push(`Could not install GitHub Copilot skills: ${err.message}`);
   }
 
-  // 5. Gemini CLI (patch only — do not create GEMINI.md)
-  const missingConfigs = [];
-  try {
-    const geminiPath = path.join(projectRoot, 'GEMINI.md');
-    if (fs.existsSync(geminiPath)) {
-      let geminiBody = `${gateText}\n\n@.claude/skills/sdd-manager/SKILL.md
-@.claude/skills/sdd-manager/references/spec-format.md`;
-      if (isFull) {
-        geminiBody += `\n@.claude/skills/sdd-manager-authoring/SKILL.md
-@.claude/skills/sdd-generate/SKILL.md
-@.claude/skills/sdd-generate/references/spec-format.md`;
-      }
-      updateManagedSection(geminiPath, geminiBody);
-    } else {
-      missingConfigs.push('GEMINI.md');
-    }
-  } catch (err) {
-    warnings.push(`Could not install Gemini CLI skills: ${err.message}`);
-  }
-
-  // 6. Amp / Codex CLI (patch only — do not create AGENTS.md)
-  try {
-    const ampPath = path.join(projectRoot, 'AGENTS.md');
-    if (fs.existsSync(ampPath)) {
-      let ampBody = `${gateText}\n\n@.claude/skills/sdd-manager/SKILL.md
-@.claude/skills/sdd-manager/references/spec-format.md`;
-      if (isFull) {
-        ampBody += `\n@.claude/skills/sdd-manager-authoring/SKILL.md
-@.claude/skills/sdd-generate/SKILL.md
-@.claude/skills/sdd-generate/references/spec-format.md`;
-      }
-      updateManagedSection(ampPath, ampBody);
-    } else {
-      missingConfigs.push('AGENTS.md');
-    }
-  } catch (err) {
-    warnings.push(`Could not install Amp skills: ${err.message}`);
-  }
-
-  // 7. Claude Code (CLAUDE.md — patch only, do not create)
-  try {
-    const claudeMdPath = path.join(projectRoot, 'CLAUDE.md');
-    if (fs.existsSync(claudeMdPath)) {
-      updateManagedSection(claudeMdPath, gateText);
-    } else {
-      missingConfigs.push('CLAUDE.md');
-    }
-  } catch (err) {
-    warnings.push(`Could not patch CLAUDE.md: ${err.message}`);
-  }
+  // 5-7. Project instruction files (patch only — do not create)
+  const instructionResult = updateProjectInstructionFiles(
+    projectRoot,
+    mode,
+    dependencySkillNames
+  );
+  warnings.push(...instructionResult.warnings);
+  const { missingConfigs } = instructionResult;
 
   return { warnings, anyChanged, missingConfigs };
 }

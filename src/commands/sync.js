@@ -39,7 +39,10 @@ export async function syncCommand() {
   let warnings;
   let missingConfigs;
   try {
-    const result = installSkills(skillRoot, { mode });
+    const dependencySkillNames = Object.entries(manifest.dependencies || {})
+      .filter(([, dependency]) => dependency.mode === 'skill')
+      .map(([name]) => name);
+    const result = installSkills(skillRoot, { mode, dependencySkillNames });
     warnings = result.warnings;
     missingConfigs = result.missingConfigs;
   } catch (err) {
