@@ -1,0 +1,650 @@
+# agentbe-daemon
+
+> Behavioral contract for the agentbe-daemon server process -- endpoints, authentication, transports, scoping, request handling, shutdown, and Docker packaging.
+
+### Daemon-Specific Terminology
+
+**daemon** -- The long-running server process (`agentbe-daemon`) that exposes a workspace over HTTP (MCP) and WebSocket (SSH). Referred to as "the daemon" throughout this document.
+
+**transport** -- A communication channel between clients and the daemon. The daemon supports three transports: stdio (local-only), HTTP (MCP), and WebSocket (SSH).
+
+**host key** -- The SSH host key used by the ephemeral SSH server for SSH-over-WebSocket connections.
+
+**static scope** -- A scope path fixed at daemon startup via CLI argument. All requests inherit this scope.
+
+**dynamic scope** -- A scope path provided per-request via HTTP header. Allows each request to target a different sub-directory.
+
+---
+
+## Operating Modes
+
+The daemon MUST support two operating modes:
+
+### Full Mode (default)
+
+Starts an HTTP server that serves:
+- The MCP endpoint (`POST /mcp`)
+- The health endpoint (`GET /health`)
+- Optionally, the SSH-over-WebSocket endpoint (`WS /ssh`)
+- Optionally, a conventional SSH daemon (sshd)
+
+### Local-Only Mode
+
+Runs an MCP server over stdio with no network listeners. The daemon reads MCP requests from stdin and writes responses to stdout.
+
+- MUST NOT start an HTTP server.
+- MUST NOT start any SSH transport.
+- MUST create a backend from the configured root directory, optionally scoped.
+- MUST NOT enable dangerous command blocking (`preventDangerous`). Local-only mode trusts the local user; only full daemon mode requires command safety enforcement.
+- MUST connect the MCP server to a stdio transport.
+
+---
+
+## Configuration
+
+### CLI Arguments
+
+The daemon MUST be invoked via the `daemon` subcommand: `agent-backend daemon <flags>`. The entrypoint MUST strip the `daemon` subcommand before parsing flags.
+
+All flags use `--kebab-case` with a space separator for the value.
+
+| Flag | Type | Default | Required | Description |
+|------|------|---------|----------|-------------|
+| `--rootDir <path>` | string | none | **Yes** | Workspace root directory |
+| `--scopePath <path>` | string | none | No | Static scope path within rootDir |
+| `--isolation <mode>` | enum | `auto` | No | Isolation mode: `auto`, `bwrap`, `software`, `none` |
+| `--shell <shell>` | enum | `auto` | No | Shell preference: `bash`, `sh`, `auto` |
+| `--port <port>` | integer | `3001` | No | HTTP/WebSocket server port |
+| `--auth-token <token>` | string | none | No | Bearer token for authentication |
+| `--local-only` | boolean | `false` | No | Run MCP server via stdio only |
+| `--disable-ssh-ws` | boolean | `false` | No | Disable SSH-over-WebSocket endpoint |
+| `--ssh-host-key <path>` | string | none | No | Path to SSH host key file |
+| `--conventional-ssh` | boolean | `false` | No | Enable conventional SSH daemon |
+| `--ssh-port <port>` | integer | `22` | No | Conventional SSH port |
+| `--ssh-users <users>` | string | `root:agents` | No | Comma-separated `user:pass` pairs |
+| `--ssh-public-key <key>` | string | none | No | SSH public key for first user |
+| `--ssh-authorized-keys <path>` | string | none | No | Path to authorized_keys file for first user |
+
+### Validation Rules
+
+- `--rootDir` MUST be provided. The daemon MUST exit with code 1 if it is missing.
+- `--port` MUST be between 1024 and 65535 inclusive.
+- `--ssh-port` MUST be between 1 and 65535 inclusive.
+- `--isolation` MUST be one of `auto`, `bwrap`, `software`, `none`. The daemon MUST exit with code 1 on an invalid value.
+- `--shell` MUST be one of `bash`, `sh`, `auto`. The daemon MUST exit with code 1 on an invalid value.
+- `--ssh-users` MUST follow the format `user:pass[,user:pass,...]`. The daemon MUST reject entries with a missing user or password.
+- Unrecognized `--` flags MUST cause the daemon to exit with code 1.
+
+### Environment Variables (Docker)
+
+The Docker entrypoint translates the following environment variables to CLI arguments. The daemon itself does not read these directly — they are a Docker-layer convention.
+
+| Variable | Maps to | Default |
+|----------|---------|---------|
+| `WORKSPACE_ROOT` | `--rootDir` | `/var/workspace` |
+| `PORT` | `--port` | `3001` |
+| `AUTH_TOKEN` | `--auth-token` | none |
+| `SSH_HOST_KEY` | `--ssh-host-key` | none |
+| `SHELL_TYPE` | `--shell` | none (auto) |
+| `DISABLE_SSH_WS` | `--disable-ssh-ws` | `false` |
+| `CONVENTIONAL_SSH` | `--conventional-ssh` | `false` |
+| `SSH_PORT` | `--ssh-port` | `22` |
+| `SSH_USERS` | `--ssh-users` | `root:agents` |
+| `SSH_PUBLIC_KEY` | `--ssh-public-key` | none |
+| `USE_LOCAL_BUILD` | (triggers dev hot-reload) | `0` |
+
+The entrypoint MUST also check for `/keys/authorized_keys` and pass it as `--ssh-authorized-keys` if it exists.
+
+---
+
+## Endpoints
+
+### `GET /health`
+
+Health check endpoint. MUST NOT require authentication.
+
+**Response:** HTTP 200 with JSON body:
+
+```json
+{
+  "status": "ok",
+  "version": "<package version>",
+  "rootDir": "<configured rootDir>",
+  "transports": {
+    "mcp": true,
+    "ssh-ws": <boolean>,
+    "ssh": <boolean>
+  }
+}
+```
+
+- `transports.mcp` MUST always be `true`.
+- `transports.ssh-ws` MUST be `true` unless SSH-over-WebSocket is disabled.
+- `transports.ssh` MUST be `true` only when conventional SSH is enabled.
+
+### `POST /mcp`
+
+MCP (Model Context Protocol) endpoint. Handles tool calls against the workspace.
+
+**Authentication:** See [Authentication](#authentication).
+
+**Request headers:**
+- `Authorization` — Bearer token (when auth is configured).
+- `X-Root-Dir` — Optional. If present and not the string `'undefined'`, the daemon MUST verify it matches the configured `rootDir` exactly. On mismatch, the daemon MUST respond with HTTP 403:
+  ```json
+  {
+    "error": "Root directory mismatch",
+    "message": "Server is configured for <rootDir>, not <requested>"
+  }
+  ```
+- `X-Scope-Path` — Optional. Dynamic scope path for this request. See [MCP Request Handling](#mcp-request-handling).
+
+**MCP processing:** Each request MUST be handled by a fresh MCP server and transport instance. See [MCP Request Handling](#mcp-request-handling).
+
+### `WS /ssh`
+
+SSH-over-WebSocket endpoint. Upgrades HTTP connections to WebSocket for SSH transport.
+
+**Path:** `/ssh`
+
+**Authentication:** See [Authentication](#authentication). Authentication MUST occur during the WebSocket `connection` event, before SSH negotiation.
+
+On authentication failure, the daemon MUST close the WebSocket with code `4001` and reason `"Unauthorized"`.
+
+See [SSH-over-WebSocket](#ssh-over-websocket) for full transport details.
+
+---
+
+## Authentication
+
+### Bearer Token Scheme
+
+When an auth token is configured (`--auth-token`), the daemon MUST enforce authentication on the `/mcp` and `/ssh` endpoints. The `/health` endpoint MUST NOT require authentication.
+
+When no auth token is configured, all requests MUST be accepted without authentication.
+
+### MCP Endpoint Authentication
+
+The daemon MUST check the `Authorization` header for the value `Bearer <token>`. The comparison MUST be an exact match and MUST take time independent of where the supplied value differs from the expected one, or of its length (constant-time comparison).
+
+On failure, the daemon MUST respond with HTTP 401:
+```json
+{
+  "error": "Unauthorized",
+  "message": "Invalid or missing authentication token"
+}
+```
+
+### SSH-over-WebSocket Authentication
+
+The daemon MUST check for the token in two locations, in order:
+1. Query parameter: `/ssh?token=<token>`
+2. `Authorization` header: `Bearer <token>`
+
+Both comparisons MUST be constant-time, as for the MCP endpoint. If either matches, authentication succeeds. Clients send the header (see [Client Libraries](clients.md)); the query parameter is retained so older clients still connect. On failure, the daemon MUST close the WebSocket with code `4001` and reason `"Unauthorized"`.
+
+---
+
+## MCP Request Handling
+
+### Per-Request Backend
+
+Each `POST /mcp` request MUST be handled with its own MCP server and transport instance. The daemon MUST NOT maintain server-side session state between requests.
+
+### Scoping
+
+The daemon supports two scoping mechanisms:
+
+**Static scope** (`--scopePath`): Fixed at startup. All requests inherit this scope path.
+
+**Dynamic scope** (`X-Scope-Path` header): Per-request scope path.
+
+**Conflict handling:** If the daemon was started with a static scope AND the request also provides a dynamic scope, the daemon MUST respond with HTTP 400:
+```json
+{
+  "error": "Scope conflict",
+  "message": "Server was started with static scope '<static>', but request also specified scope '<dynamic>'. Use one or the other, not both."
+}
+```
+
+### Scope Path Validation
+
+The effective scope path (from either source) MUST be validated:
+1. Leading slashes MUST be stripped.
+2. `..` sequences MUST be rejected. If the scope path contains `..` or normalizing it changes the value, the daemon MUST respond with HTTP 400:
+   ```json
+   {
+     "error": "Invalid scope path",
+     "message": "Scope path must not contain path traversal sequences"
+   }
+   ```
+
+### Backend Construction
+
+In full daemon mode, the backend MUST be constructed with dangerous command blocking enabled (`preventDangerous: true`).
+
+If a valid scope path is present, the daemon MUST create a scoped backend from the base backend using the normalized scope path.
+
+### MCP Server Tools
+
+**Important:** The MCP protocol evolves independently of this spec. Before implementing or updating MCP request handling, the implementer MUST consult the latest [MCP specification](https://spec.modelcontextprotocol.io/) and the [MCP TypeScript SDK](https://github.com/modelcontextprotocol/typescript-sdk) for current transport types, server APIs, and protocol details.
+
+**Positioning:** Early versions of this spec required tool names, schemas, and semantics to match the [official MCP Filesystem Server](https://github.com/modelcontextprotocol/servers/tree/main/src/filesystem) exactly. That constraint is now lifted. The daemon's filesystem toolset is explicitly designed for **agentic coding use cases** and targets parity with Claude Code's in-CLI file tools (Read, Write, Edit, Glob, Grep, Bash), which are more featured and more robust than the reference filesystem server. The official server remains a useful reference but is not the contract. Specific, intentional divergences are called out inline in the tool table below.
+
+The daemon's filesystem tools are:
+
+| Tool | Description |
+|------|-------------|
+| `read_file` | Read one file. Returns paged text, an image or audio block, or an error describing an unrecognized binary, depending on the file's type. See [read_file](#read_file). |
+| `write_file` | Create new file or overwrite existing |
+| `edit_file` | Selective edits using `edits: [{ oldText, newText, replaceAll? }]` with optional top-level `dryRun`. For each edit, if `oldText` is not found the tool MUST throw an input error. If `oldText` appears more than once in the current file state and `replaceAll` is omitted or `false`, the tool MUST throw an input error naming the number of matches and instructing the caller to either add more surrounding context to make `oldText` unique or pass `replaceAll: true`. When `replaceAll: true`, every occurrence of `oldText` MUST be replaced. Edits are applied sequentially; later edits see the file state produced by earlier edits. When `dryRun: true`, the tool MUST return the unified diff prefixed with `[DRY RUN]\n` and MUST NOT write to disk. The tool MUST return a unified diff of the change, computed against the file's pre-edit contents, carrying `--- <path>` / `+++ <path>` file headers, standard `@@` hunk headers, and 3 lines of context per hunk. Diff rendering MUST terminate for every pair of inputs; in particular, repeated lines, transposed adjacent lines, and reordered blocks MUST NOT be able to stall progress. Diff rendering MUST additionally be bounded by a budget enforced **inside** the rendering loop: a wall-clock deadline of `DIFF_TIMEOUT_MS` (15000 ms) and a cap of `DIFF_MAX_EDIT_LENGTH` (20000) line-level edits. Because rendering is synchronous and holds the daemon's only thread, this budget MUST NOT be implemented as an external timeout (`Promise.race`, `setTimeout`, or an `AbortSignal` wrapped around the handler) — such a wrapper cannot fire while the loop holds the thread, and an unbounded render makes the daemon unresponsive to every session it serves, not just the calling one. On budget breach the tool MUST NOT throw and MUST NOT hang: it MUST degrade to the file headers followed by a single `[diff omitted: ...]` marker naming the exceeded budget and the pre- and post-edit line counts. On a non-dry-run call the write MUST be performed before the diff is rendered, so that a slow, degraded, or failed render can never discard an edit that has already been computed; when the budget is exceeded on such a call, the returned text MUST lead with a line confirming the edit was applied so the caller can distinguish a rendering shortfall from a failed edit. **Deviation:** Claude Code's Edit tool shape is preferred over the reference server's single-edit shape. The uniqueness guard prevents silent first-match replacement, which is a known footgun in the reference server. |
+| `create_directory` | Create new directory or ensure it exists |
+| `list_directory` | List one directory's entries with `[FILE]`/`[DIR]` prefixes, optionally with file sizes. See [list_directory](#list_directory). |
+| `directory_tree` | Recursive JSON tree structure with optional `excludePatterns` |
+| `move_file` | Move or rename files and directories |
+| `search_files` | Recursively search for files matching glob patterns, with optional `excludePatterns` and optional `sortBy` (`path` \| `mtime`, default `path`). When `sortBy: 'mtime'`, results MUST be sorted by modification time descending (most recently modified first). This matches Claude Code's Glob behavior and helps agents surface recently-edited files without extra tool calls. |
+| `get_file_info` | Get detailed file/directory metadata |
+
+The daemon MUST NOT register a `list_allowed_directories` tool. **Rationale:** the official filesystem server needs it because it can be started with several allowed absolute directories, and the caller has to discover which absolute paths it may use. This daemon serves exactly one workspace root and every tool takes workspace-relative paths (`"."` is the root), so the tool could only report the root's absolute host path. That path is of no use to the caller, exposes the host's directory layout (for a scoped backend it includes the scope, e.g. `/var/workspace/users/123`), and steers callers toward absolute paths. A host that wants the model to know its root states it in the system prompt, as Claude Code does.
+
+In addition to the filesystem tools above, the daemon MUST register the following tools when the backend supports command execution (i.e. has an `exec` capability — file-based backends do, the memory backend does not):
+
+| Tool | Description |
+|------|-------------|
+| `exec` | Execute a shell command in the workspace root. Parameters: `command` (string, required) — the only parameter; the tool MUST NOT accept an `env` parameter. Per-command environment variables are set inline in the command (`FOO=bar cmd`). The environment a command runs with is otherwise the one the backend supplies, including any scope-level `env`. **Rationale:** an `env` parameter duplicated inline assignment without adding anything: the caller writes the values either way, so nothing is hidden from it; inline assignment overrides scope-level `env` just as the parameter did; and any variable filtering applied to the parameter was bypassed by writing the same assignment inline (environment manipulation is intentionally not blocked — see [safety.md](safety.md)). It was also one more optional field for models to fill. The client library's programmatic `exec` `env` option is unaffected: host code uses it to pass values the model never sees. |
+| `grep` | Search file contents using [ripgrep](https://github.com/BurntSushi/ripgrep). Parameters: `pattern` (string, required — regex), `path` (string, optional — file or directory, defaults to workspace root; when omitted the tool MUST pass the workspace root to `rg` as an explicit search path, because `rg` with no path searches stdin instead of the working directory), `glob` (string, optional — e.g. `"*.ts"`), `type` (string, optional — ripgrep type name, e.g. `"js"`, `"py"`), `outputMode` (`"content"` \| `"files_with_matches"` \| `"count"`, default `"files_with_matches"`), `caseInsensitive` (boolean, optional), `multiline` (boolean, optional — pattern can span newlines when true), `contextBefore` (integer, optional — `rg -B`), `contextAfter` (integer, optional — `rg -A`), `contextAround` (integer, optional — `rg -C`), `lineNumbers` (boolean, optional — applies to `outputMode: "content"`, ignored otherwise), `headLimit` (integer, optional — cap result lines/paths/counts at the end of processing). The tool MUST shell out to the system `rg` binary via the backend's `exec`. If `rg` is not installed on the host, the tool MUST surface a clear installation hint. `grep` requires a real filesystem and is NOT registered for the memory backend. **Rationale:** `search_files` only matches filenames; a coding agent needs content search. Ripgrep is the fastest tree-aware search tool and respects `.gitignore` by default, which matches what an agent typically wants. The parameter surface deliberately mirrors Claude Code's Grep tool so model prompting carries over. See [Grep context parameters](#grep-context-parameters) for how the three context parameters combine. |
+
+#### read_file
+
+Parameters: `path` (string, required), `offset` (integer, optional), `limit` (integer, optional), `force` (boolean, optional, default `false`).
+
+The tool MUST choose its response from the file's type. The caller never declares the type, and there is no separate text, media or batch read tool.
+
+1. **Media.** When the MIME type detected from the file's extension is `image/*` or `audio/*`, the tool MUST return a single `image` or `audio` content block holding the base64 file data and that MIME type. `image/svg+xml` is the exception: SVG is text and MUST be read as text (step 3), because agents edit it as source and model APIs generally do not accept it as an image. For media files `force` MUST be ignored, and `offset`/`limit` are validated as for text but otherwise ignored rather than rejected.
+2. **Binary.** Otherwise the file is binary when its content contains a NUL byte within the first 8,192 bytes, or when its extension maps to a known non-text MIME type (`video/*`, `application/pdf`, or an archive type such as `application/zip`). For a binary file with `force` omitted or `false`, the tool MUST return a text content block with `isError: true` that names the unrecognized file type, reports file-level info (path, extension, detected MIME type, size, mtime), suggests `get_file_info` for metadata or `exec` for inspecting it with a command-line tool, and tells the caller to retry with `force: true` if it genuinely needs the raw bytes. With `force: true` the tool MUST return the file as base64 using the `blob` content type.
+3. **Text.** Every other file MUST be decoded as UTF-8 and paged as described below. `force` MUST NOT change the result for a text file.
+
+Text paging is a single mode: `offset` (1-based line number, defaults to 1) and `limit` (max lines) define an explicit page. There MUST NOT be any other paging parameter — in particular the tool MUST NOT expose `head` or `tail` modes, so there is no invalid combination of paging parameters to reject. The `offset` and `limit` descriptions MUST instruct the caller to supply them only if the file is too large to read at once, and MUST NOT state the value of `MAX_LIMIT` (advertising the ceiling invites callers to send it). Zero or negative `offset`/`limit` MUST throw an input error. `limit` greater than `MAX_LIMIT` (5000) MUST be silently clamped to `MAX_LIMIT` so the caller gets some content rather than a refusal. When no paging parameters are supplied (**implicit paging**), the tool MUST return at most `DEFAULT_LIMIT` (1000) lines starting at line 1. Every returned line MUST be clipped to `LINE_TRUNCATION_THRESHOLD` (2000) characters; a clipped line MUST be replaced inline with `<first 2000 chars>… [line truncated, original N chars]`. Line numbers MUST NOT be prepended to the body.
+
+When the returned slice does not cover the entire file, a single trailing footer line (plain text, no markdown, with a leading `\n` if the slice does not already end in one) MUST be appended describing what the caller received. Footer formats (verbatim; numbers use comma thousands-separators; size suffix uses `<1 KB`, `X KB`, `X.Y MB`, `X.Y GB`):
+
+- Implicit paging with clipped output: `[showing lines 1-1000 of 4,512; file is ~1.4 MB. Call again with offset and limit to read more.]`
+- Explicit paging: `[showing lines 2001-3000 of 4,512.]`
+
+In implicit mode, if any line was clipped by the per-line truncator, the implicit-paging footer MUST also be appended even if the slice nominally covers the whole file (so that pathological single-line files still surface file size and the "call again" hint). Out-of-range `offset` (greater than the file's line count) MUST return an empty body plus a footer naming the file length.
+
+**Rationale (one tool):** earlier versions exposed `read_text_file`, `read_media_file` and `read_multiple_files`. Splitting by type made the caller route a read that the daemon can route itself from the file's type, and a wrong guess cost a round trip. `read_multiple_files` returned every file whole and decoded as UTF-8, so a single call with one path bypassed all of the text paging limits and turned images into mojibake. Batch reads are expressed as parallel `read_file` calls, each paged and failing independently; the tool takes one path rather than a list so every result keeps its own footer and error status, and so the schema needs no array of unions, which several providers' tool-schema subsets handle poorly.
+
+**Rationale (paging):** `head: N` was exactly `offset: 1, limit: N`, so it added a second way to express an identical read; models routinely populated several paging parameters at once and got a thrown error on a request that was unambiguously serveable. Last-N-lines reads are reachable via `exec` (`tail -n 100 <file>`).
+
+**Deviations from the official filesystem server:** the official server returns the entire file when no paging parameters are supplied; this daemon returns at most `DEFAULT_LIMIT` lines plus a footer, because unbounded reads can blow up the agent's context window and inflate provider round-trip cost for the remainder of the conversation. The footer is informative enough that a naive caller can recover by passing `offset`/`limit` on the next call. The official server also *always* falls back to `blob` for unknown binaries; this daemon requires explicit opt-in via `force`, because there is no known common use case where a model can do anything useful with raw base64 of an arbitrary binary — the default response returns actionable file metadata instead of opaque bytes, and `force` preserves the escape hatch for callers that genuinely need it.
+
+#### list_directory
+
+Parameters: `path` (string, required; `"."` is the workspace root), `includeSizes` (boolean, optional, default `false`), `sortBy` (`"name"` \| `"size"`, optional, default `"name"`).
+
+- Each entry MUST be listed on its own line, prefixed `[DIR]` or `[FILE]`. An entry whose metadata cannot be read MUST be listed with the prefix `[?]` rather than failing the call.
+- `sortBy: "name"` MUST sort entries by name ascending. `sortBy: "size"` MUST sort by file size descending, with directories and `[?]` entries counting as size 0 and ties broken by name ascending. `sortBy` MUST apply whether or not `includeSizes` is set.
+- With `includeSizes` omitted or `false`, each line MUST be exactly `<prefix> <name>`.
+- With `includeSizes: true`, each `[FILE]` line MUST also carry the file's human-readable size (e.g. `1.50 KB`); `[DIR]` and `[?]` lines carry no size. The listing MUST end with a blank line followed by `Total: <F> files, <D> directories` and `Combined size: <size>`, where `[?]` entries count as neither files nor directories and the combined size sums `[FILE]` entries only.
+
+**Rationale:** earlier versions exposed a separate `list_directory_with_sizes` tool that differed from `list_directory` only in its output. A flag on one tool keeps the tool list shorter and removes a choice the caller had to make before seeing the directory.
+
+#### Grep context parameters
+
+The three context parameters MUST NOT be treated as mutually exclusive, and supplying them in any combination MUST NOT be an error. The tool MUST resolve them exactly the way `rg` itself does: an explicit `contextBefore`/`contextAfter` wins over `contextAround` for that side, independent of ordering.
+
+- Effective before-context is `contextBefore` when supplied, otherwise `contextAround`, otherwise none.
+- Effective after-context is `contextAfter` when supplied, otherwise `contextAround`, otherwise none.
+
+Given `{ contextBefore: 4, contextAfter: 16, contextAround: 0 }`, the tool MUST search with 4 lines before and 16 lines after — matching `rg -B 4 -A 16 -C 0`. Given `{ contextAround: 3 }`, the tool MUST search with 3 lines before and 3 lines after. Given `{ contextAround: 3, contextBefore: 0 }`, the tool MUST search with no lines before and 3 lines after. A context value of `0` means "no context on that side" and MUST behave identically to omitting the parameter.
+
+Context parameters supplied with an `outputMode` other than `"content"` MUST be ignored rather than rejected, the same way `lineNumbers` is ignored outside content mode.
+
+**Rationale:** models routinely fill every optional field in a schema with a neutral `0`, so the presence of a context parameter is not evidence that the caller requested that context. Rejecting `contextAround: 0` alongside real `contextBefore`/`contextAfter` values turns the single most common shape of grep call into a hard error, and the model's usual recovery is to abandon the tool for raw `rg`, losing `headLimit` and the daemon's guardrails. Deferring to `rg`'s own precedence removes the failure mode without inventing wrapper-specific semantics.
+
+---
+
+## SSH-over-WebSocket
+
+### WebSocket Upgrade
+
+The daemon MUST listen for WebSocket upgrade requests at the `/ssh` path.
+
+If `--disable-ssh-ws` is set, the daemon MUST NOT create the WebSocket server.
+
+### Duplex Stream Bridging
+
+The daemon MUST create a duplex stream from each WebSocket connection to bridge with the SSH server:
+
+- Writes to the duplex MUST send data via `ws.send()`. If the WebSocket is not in the OPEN state, writes MUST fail with an error.
+- Incoming WebSocket messages MUST be pushed into the readable side of the duplex as Buffers.
+- WebSocket `close` MUST push EOF (null) to the readable side.
+- WebSocket `error` MUST destroy the duplex stream.
+- Calling `final()` on the duplex MUST close the WebSocket with code 1000.
+- Calling `destroy()` on the duplex MUST close the WebSocket with code 1011.
+
+The duplex stream MUST be injected into an SSH server instance for protocol handling.
+
+### SSH Server Per Connection
+
+Each WebSocket connection MUST get its own ephemeral SSH server instance. When the WebSocket closes, the SSH server for that connection is torn down.
+
+### SSH Authentication Passthrough
+
+Once WebSocket-level authentication succeeds, the SSH server MUST accept all SSH authentication methods (password, publickey, none). The rationale is that transport-level token authentication has already been performed.
+
+### Host Key Management
+
+The daemon MUST support loading an SSH host key from a file (`--ssh-host-key`) or auto-generating one.
+
+- **Default path:** `/var/lib/agentbe/ssh_host_ed25519_key`
+- **Key algorithm:** RSA (2048-bit). The key MUST be generated via `generateKeyPairSync('rsa', { modulusLength: 2048 })` (or equivalent) with PKCS#1 PEM encoding.
+- If the file at the configured (or default) path exists, the daemon MUST read and use it.
+- If the file does not exist, the daemon MUST generate a new RSA key pair and attempt to save it for reuse.
+- If the directory cannot be created or the file cannot be written, the daemon MUST use the generated key ephemerally (in-memory only, not persisted). This MUST NOT be a fatal error.
+
+### Session Types
+
+The SSH server MUST handle the following session types:
+
+#### PTY Requests
+
+The daemon MUST accept PTY requests and store the terminal information (term type, columns, rows) for use by subsequent shell or exec requests.
+
+#### Shell Sessions
+
+When a shell session is requested:
+- The daemon SHOULD attempt to use a PTY-capable spawner (e.g., `node-pty`) if available, for proper terminal emulation.
+- If PTY support is unavailable, the daemon MUST fall back to executing the resolved shell as a command.
+- Default terminal type: `xterm-256color`. Default dimensions: 80 columns, 24 rows.
+
+#### Exec Sessions
+
+When a command exec is requested:
+- The daemon MUST spawn the command via the resolved shell with `-c` flag.
+- Working directory MUST be set to the workspace root (or scoped root).
+- Environment MUST include `HOME`, `PWD` (set to the working directory), and `TERM=xterm-256color`.
+- The exit code MUST be sent via the SSH channel's exit method.
+- On spawn failure, the daemon MUST write the error to stderr on the channel and exit with code 1.
+
+#### Window Change
+
+The daemon MUST handle `window-change` session events. These events indicate a PTY resize. The daemon MUST accept the event (call `accept()` if provided). Implementations SHOULD propagate the new dimensions to the active PTY process if one is tracked.
+
+#### SFTP Sessions
+
+The daemon MUST support SFTP sessions. See [SFTP Path Jailing](#sftp-path-jailing).
+
+### Shell Resolution
+
+The daemon MUST resolve the shell to use:
+- `'bash'` → `/bin/bash`
+- `'sh'` → `/bin/sh`
+- `'auto'` or unset → prefer `/bin/bash` if it exists, fall back to `/bin/sh`
+
+---
+
+## SFTP Path Jailing
+
+All SFTP operations MUST be confined to the workspace root directory.
+
+### Path Resolution
+
+For every SFTP operation, the daemon MUST resolve paths as follows:
+1. Normalize the workspace root via an absolute path resolve.
+2. If the requested path already starts with the normalized root (followed by `/` or is equal), use it directly.
+3. Otherwise, strip leading slashes and resolve relative to the workspace root.
+4. After resolution, verify the resolved path starts with the normalized root (followed by `/` or is equal). If not, the operation MUST fail with a path escape error.
+
+### Supported SFTP Operations
+
+The daemon MUST implement the following SFTP operations:
+
+| Operation | Notes |
+|-----------|-------|
+| OPEN | Auto-create parent directories for write operations. Default file mode: `0o644`. SFTP open flags MUST be translated to OS-level flags (e.g., `SSH2_FXF_READ` → `O_RDONLY`, `SSH2_FXF_WRITE` → `O_WRONLY`, `SSH2_FXF_CREAT` → `O_CREAT`, `SSH2_FXF_TRUNC` → `O_TRUNC`, `SSH2_FXF_EXCL` → `O_EXCL`, `SSH2_FXF_APPEND` → `O_APPEND`). Flags MUST be combined bitwise. |
+| READ | Return `EOF` status when zero bytes are read. |
+| WRITE | Write at specified offset. |
+| CLOSE | Close file handle and free the handle ID. |
+| FSTAT | Stat an open file handle. |
+| OPENDIR | Read directory entries into memory. |
+| READDIR | Return entries in batches. Return `EOF` status when exhausted. |
+| STAT | Stat a path (follows symlinks). |
+| LSTAT | Stat a path (does not follow symlinks). |
+| REALPATH | Return the resolved path relative to the workspace root, presented to the client as an absolute path from `/`. |
+| MKDIR | Default mode: `0o755`. |
+| RMDIR | Remove an empty directory. |
+| REMOVE | Delete a file. |
+| RENAME | Auto-create parent directory of destination. Both paths MUST be validated within the workspace root. |
+| SETSTAT | Support chmod. Chown and utimes MAY silently ignore errors. |
+| FSETSTAT | Same as SETSTAT but on an open file handle. |
+
+### Error Mapping
+
+SFTP errors MUST be mapped from OS error codes:
+- `ENOENT` → `NO_SUCH_FILE`
+- `EACCES` → `PERMISSION_DENIED`
+- All other errors → `FAILURE`
+
+---
+
+## Conventional SSH (Opt-In)
+
+The daemon MAY support running a conventional SSH daemon (sshd) alongside the HTTP server.
+
+### Platform Requirements
+
+- `--conventional-ssh` MUST require Linux (`process.platform === 'linux'`). The daemon MUST exit with code 1 on other platforms.
+- `--conventional-ssh` SHOULD require root privileges. The daemon SHOULD print a warning if not running as root.
+- The daemon MUST verify `/usr/sbin/sshd` exists. If missing, the daemon MUST exit with code 1.
+
+### User Setup
+
+When conventional SSH is enabled, the daemon MUST:
+1. Create Linux users from the `--ssh-users` list using `useradd -m -s /bin/bash`.
+2. Set passwords via `chpasswd`.
+3. Create `.ssh` directories with mode `700` and `authorized_keys` files with mode `600`.
+4. Apply `--ssh-public-key` and `--ssh-authorized-keys` to the first user only.
+5. Enable password authentication via an sshd configuration drop-in file.
+
+### sshd Process
+
+The daemon MUST spawn sshd with `-D` (foreground) and `-e` (log to stderr) flags on the configured port.
+
+If sshd exits unexpectedly, the daemon MUST close the HTTP server and exit with code 1.
+
+---
+
+## Graceful Shutdown
+
+The daemon MUST handle `SIGTERM` and `SIGINT` for graceful shutdown.
+
+### Close Ordering
+
+On receiving a shutdown signal, the daemon MUST close resources in the following order:
+
+1. **SSH-over-WebSocket server** — Close all active WebSocket clients with code 1000 and reason `"Server shutting down"`, then close the WebSocket server.
+2. **HTTP server** — Stop accepting new connections and close the HTTP server.
+3. **Conventional sshd** (if running) — Send `SIGTERM` to the sshd process and wait for it to exit.
+4. **Exit** — Exit the process with code 0.
+
+---
+
+## Docker Image
+
+### Base Image
+
+The Docker image MUST use `ubuntu:26.04` as the base image.
+
+### Build Arguments
+
+| Argument | Default | Description |
+|----------|---------|-------------|
+| `INCLUDE_SSHD` | `true` | Include openssh-server |
+| `AGENTBE_VERSION` | `local` | Package version or `local` for local build |
+
+### Installed Tooling
+
+The image MUST include:
+- `sudo`, `curl`, `wget`, `tree`, `ripgrep`, `git`
+- `python3`, `python3-pip`
+- Node.js 24 LTS (via nodesource), version 24.15.0 or later, on `PATH` as `node` — `require('zlib').createZstdDecompress` MUST be defined. The image build MUST fail if the installed Node does not satisfy this.
+- `npm`, installed under that same Node; all global npm packages below MUST be installed with it
+- `pnpm`, `tsx` (global npm packages)
+- `agent-backend` (from npm or local build)
+- `openssh-server` (when `INCLUDE_SSHD=true`)
+
+### Build-Time SSH Configuration
+
+When `INCLUDE_SSHD=true`, the image MUST configure sshd at build time:
+
+1. Create `/var/run/sshd` and `/run/sshd` directories.
+2. Generate SSH host keys (`ssh-keygen -A`).
+3. Modify `/etc/ssh/sshd_config`:
+   - `PermitRootLogin yes`
+   - `PasswordAuthentication yes`
+   - `PubkeyAuthentication yes`
+   - `ListenAddress 0.0.0.0`
+4. Create an sshd config drop-in file (`/etc/ssh/sshd_config.d/agentbe.conf`) with:
+   - `PasswordAuthentication yes`
+   - `PermitRootLogin yes`
+   - `ChallengeResponseAuthentication yes`
+   - `MaxSessions 64`
+   - `MaxStartups 10:30:100`
+   - `ClientAliveInterval 60`
+   - `ClientAliveCountMax 3`
+5. Configure PAM: change `pam_loginuid.so` from `required` to `optional` in `/etc/pam.d/sshd`.
+6. Create `/root/.ssh` (mode `700`) with an empty `authorized_keys` file (mode `600`).
+7. Set the default root password (`root:agents`) via `chpasswd`.
+
+### Published Tags
+
+The release image is published as `ghcr.io/deepagents-ai/agentbe-daemon`. Each release MUST be tagged with the bare package version (e.g., `0.13.1`), so a consumer can pin the image to the client library version it installed, in addition to `v<version>`, the short commit SHA, and `latest`.
+
+### Workspace Directory
+
+The image MUST create `/var/workspace` with mode `755`, owned by `root:root`.
+
+### Exposed Ports
+
+- `3001` — MCP + SSH-over-WebSocket
+- `22` — Conventional SSH
+
+### Health Check
+
+The image MUST define a health check:
+- Command: `curl -f http://localhost:${PORT:-3001}/health`
+- Interval: 30 seconds
+- Timeout: 10 seconds
+- Start period: 5 seconds
+- Retries: 3
+
+### Entrypoint Behavior
+
+The entrypoint script (`/docker-entrypoint.sh`) MUST:
+
+1. If invoked as `agent-backend daemon`:
+   a. Strip the `agent-backend daemon` prefix (`shift 2`) so remaining args can be passed through.
+   b. Create the `WORKSPACE_ROOT` directory (default `/var/workspace`) with mode `755`.
+   c. Run all executable `*.sh` scripts in `/docker-entrypoint.d/`, sorted by version sort. Non-executable `.sh` files and non-`.sh` files SHOULD be logged as ignored.
+   d. Translate environment variables to CLI arguments. Arguments MUST be stored in a bash array (not a string) to safely handle values containing spaces.
+   e. Change to `WORKSPACE_ROOT`.
+   f. Execute the daemon via `exec` so the daemon process replaces the shell and becomes PID 1 in the container. This is critical for proper signal handling (SIGTERM, SIGINT). Any remaining positional args (`"$@"`) MUST be appended to allow Docker CMD overrides to pass additional flags.
+2. For any other command, execute it directly via `exec "$@"`.
+
+The entrypoint MUST use `set -e` (fail on any error).
+
+### Extension Points
+
+The image MUST support three extension mechanisms:
+
+1. **`FROM` + `RUN`** — Extend the image with additional packages via a downstream Dockerfile.
+2. **`/docker-entrypoint.d/*.sh`** — Drop-in init scripts executed at container startup before the daemon starts.
+3. **`CMD` override** — Replace the default command entirely.
+
+### Dev Hot-Reload
+
+When `USE_LOCAL_BUILD=1` and the local source directory exists at `/app/agent-backend/src`, the entrypoint MUST use `tsx --watch` to run the daemon from source with automatic restart on file changes.
+
+---
+
+## Local Docker Launcher
+
+The `agent-backend` CLI provides `start-docker` and `stop-docker` subcommands. They are the single supported way to run the daemon image as a container on the local machine — for application use and for repository development alike. Clients connect to the launched container with `RemoteFilesystemBackend` (host `localhost`), because the container is a separate isolation boundary even though it runs on the same machine.
+
+### `start-docker` Flags
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--port <port>` | integer | `3001` | Host port, also used as the container's `PORT` |
+| `--bind <addr>` | string | `127.0.0.1` | Host address the port is published on |
+| `--auth-token <token>` | string | launcher's `AUTH_TOKEN` env var, else none | Passed to the container as `AUTH_TOKEN` |
+| `--workspace <path>` | string | none | Host directory bind-mounted at `/var/workspace` |
+| `--env-file <path>` | string | none | Env file passed to the container |
+| `--image <ref>` | string | `ghcr.io/deepagents-ai/agentbe-daemon:latest` | Image to run |
+| `--build` | boolean | `false` | Build the image from source and run it (source checkout only) |
+| `--dev` | boolean | `false` | Run from mounted source with hot reload (source checkout only) |
+| `--foreground` | boolean | `false` | Stay attached to the container instead of detaching |
+
+Validation:
+- `--port` MUST be between 1024 and 65535 inclusive.
+- `--image` MUST NOT be combined with `--build` or `--dev`.
+- Flags that require a value MUST reject a missing value or a value beginning with `--`.
+- Unrecognized flags and positional arguments MUST cause exit code 1.
+- A `--workspace` path MUST be resolved to an absolute path and created if it does not exist.
+
+Given `agent-backend start-docker --port 99`, the launcher MUST exit with code 1 without invoking Docker.
+
+### Source Checkout Requirement
+
+`--build` and `--dev` require a source checkout: a directory, at or above the installed package, containing `agentbe-daemon/docker/Dockerfile`. If none is found, the launcher MUST exit with code 1 with a message stating that the flag requires a source checkout and suggesting the default published image instead.
+
+With either flag, the image is the locally built `agentbe-daemon:latest`:
+- `--build` MUST build the TypeScript package and then the image, even if the image already exists.
+- `--dev` MUST build the image only if it does not exist. It MUST also refresh the standalone production dependency folder mounted into the container, then mount that folder at `/app/agent-backend` and the package's TypeScript source at `/app/agent-backend/src` (both read-only), and set `USE_LOCAL_BUILD=1` so the entrypoint hot-reloads (see Dev Hot-Reload).
+
+### Start Lifecycle
+
+1. If Docker is not reachable, the launcher MUST exit with code 1 with a message saying Docker is required.
+2. The container MUST be named `agentbe-daemon`. If a container with that name already exists (running or stopped), the launcher MUST remove it before starting, so every `start-docker` applies the flags given.
+3. For an image that is not built locally (the default or `--image`), the launcher MUST pull it before starting so `latest` is current — except when the reference names no registry host (its first path segment contains no `.` or `:` and is not `localhost`, e.g. `agentbe-daemon:latest`) and the image already exists locally, in which case the launcher MUST use the local image without pulling or warning. If the pull fails because the image has no build for the host architecture, the launcher MUST pull and run it as `linux/amd64` (emulated) and print a note saying so. If the pull fails for any other reason and the image already exists locally, the launcher MUST warn and use the local copy; otherwise it MUST exit with code 1.
+4. The container MUST publish `<bind>:<port>:<port>` and set `PORT=<port>`. It MUST NOT publish the conventional SSH port. Values from `--env-file` MUST be overridden by the explicit `PORT` and `AUTH_TOKEN` values.
+5. When no auth token is supplied by flag, launcher environment, or env file, the launcher MUST print a warning that the daemon is unauthenticated.
+6. When no `--workspace` is given, the launcher MUST print a note that workspace files live only inside the container and are lost when it is removed.
+7. **Detached (default):** the launcher MUST start the container in the background, then poll `GET /health` on the published port until it responds `200` or 120 seconds elapse. On success it MUST print the MCP URL and the `RemoteFilesystemBackend` connection settings (host, port, root directory, whether a token is required) and exit 0. It MUST NOT print any SSH password. On timeout it MUST print the container's recent logs, leave the container in place for inspection, and exit 1.
+8. **Foreground (`--foreground`):** the launcher MUST run the container attached with its output streamed to the terminal, and the container MUST be removed when it exits. On SIGINT or SIGTERM the launcher MUST stop the container. The launcher MUST exit with the container's exit code.
+
+### `stop-docker`
+
+MUST stop and remove the `agentbe-daemon` container. If no such container exists, it MUST print that nothing is running and exit 0.
+
+---
+
+## Security Considerations
+
+### Path Jailing
+
+All file operations — whether via MCP tools, SFTP, or shell execution — MUST be confined to the workspace root directory. Path traversal attempts (`..`) MUST be detected and rejected at every layer (MCP scope validation, SFTP path resolution, backend path resolution).
+
+### Command Isolation
+
+In full daemon mode, the backend MUST be configured with dangerous command blocking enabled. The daemon delegates command safety enforcement to the backend layer (see [Command Safety](safety.md) for the full list of blocked patterns).
+
+### Child Process Environment
+
+Processes the daemon spawns (exec commands, SSH exec and shell sessions) MUST NOT inherit `AUTH_TOKEN` or `MCP_AUTH_TOKEN` from the daemon's environment.
+
+Given a daemon started with `AUTH_TOKEN=secret` in its environment, running `env` through `/ssh` or an MCP exec tool MUST NOT print `secret`.
+
+This keeps the token out of a child's environment only. A child running as the same OS user can still read the daemon's original environment and command line through `/proc`. Deployments that need to hide the token from commands MUST run those commands as a different user or in a separate PID namespace.
+
+### Authentication Token Recommendations
+
+- Deployments exposed to the network SHOULD configure an auth token.
+- Auth tokens SHOULD be generated with sufficient entropy (e.g., 256-bit random).
+- Tokens are compared via constant-time exact match (see [Authentication](#authentication)) to prevent timing attacks.
+
+### SSH Host Key Stability
+
+For production deployments, operators SHOULD provide a persistent host key via `--ssh-host-key` to prevent host key mismatch warnings on client reconnection. Auto-generated keys are ephemeral when the file cannot be persisted, meaning clients will see a different host key each time the daemon restarts.
